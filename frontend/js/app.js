@@ -379,6 +379,85 @@ function updateRegionLayers(devices, force = false) {
   });
 }
 
+function addMapTiles(map, statusId, message) {
+  const status = document.getElementById(statusId);
+  const failedTiles = new Set();
+  const pendingTiles = new WeakMap();
+  const updateStatus = () => {
+    if (!status) return;
+    status.textContent = failedTiles.size ? message : '';
+    status.classList.toggle('hidden', !failedTiles.size);
+  };
+  const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+    referrerPolicy: 'strict-origin-when-cross-origin'
+  });
+  // A 403 response can contain a decodable PNG. Check HTTP status before showing it.
+  tiles.createTile = function(coords, done) {
+    const tile = document.createElement('img');
+    tile.alt = '';
+    tile.setAttribute('role', 'presentation');
+    tile.referrerPolicy = 'strict-origin-when-cross-origin';
+    const controller = new AbortController();
+    let disposed = false, completed = false, objectURL = null;
+    const releaseURL = () => {
+      if (objectURL) URL.revokeObjectURL(objectURL);
+      objectURL = null;
+    };
+    const complete = error => {
+      if (disposed || completed) return;
+      completed = true;
+      tile.onload = tile.onerror = null;
+      releaseURL();
+      pendingTiles.delete(tile);
+      done(error, tile);
+    };
+    pendingTiles.set(tile, () => {
+      disposed = true;
+      controller.abort();
+      tile.onload = tile.onerror = null;
+      releaseURL();
+    });
+    Promise.resolve().then(async () => {
+      if (disposed) return;
+      const response = await fetch(this.getTileUrl(coords), {
+        mode: 'cors', credentials: 'omit',
+        referrerPolicy: 'strict-origin-when-cross-origin', signal: controller.signal
+      });
+      if (disposed) return;
+      if (!response.ok) throw new Error(`Không tải được nền bản đồ (HTTP ${response.status})`);
+      const blob = await response.blob();
+      if (disposed) return;
+      objectURL = URL.createObjectURL(blob);
+      tile.onload = () => complete(null);
+      tile.onerror = () => complete(new Error('Không đọc được ảnh nền bản đồ'));
+      tile.src = objectURL;
+    }).catch(error => {
+      if (!disposed && error.name !== 'AbortError') complete(error);
+    });
+    return tile;
+  };
+  tiles.on('tileerror', event => {
+    // Hide provider error images; measurement markers belong to separate layers.
+    event.tile.style.visibility = 'hidden';
+    failedTiles.add(event.tile);
+    updateStatus();
+  });
+  tiles.on('tileload', event => {
+    event.tile.style.visibility = '';
+    failedTiles.delete(event.tile);
+    updateStatus();
+  });
+  tiles.on('tileunload tileabort', event => {
+    pendingTiles.get(event.tile)?.();
+    pendingTiles.delete(event.tile);
+    failedTiles.delete(event.tile);
+    updateStatus();
+  });
+  return tiles.addTo(map);
+}
+
 function initMap() {
   if (leafletMap) return;
   const mapEl = document.getElementById('leaflet-map');
@@ -393,10 +472,7 @@ function initMap() {
     scrollWheelZoom: true
   }).setView([10.770, 106.675], 11);
   
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors',
-    maxZoom: 19
-  }).addTo(leafletMap);
+  addMapTiles(leafletMap, 'dashboard-map-status', 'Không tải được nền bản đồ. Điểm đo và số liệu vẫn được giữ.');
 
   // Multiple invalidateSize ticks to ensure container dimensions are tracked across layout passes
   [50, 200, 600, 1500].forEach(delay => {
@@ -681,10 +757,7 @@ function initPickerMap(lat = 10.770, lng = 106.675, radiusKm = 1.5, risk = 1) {
 
   if (!pickerMap) {
     pickerMap = L.map('dev-modal-map').setView([lat, lng], 13);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OSM',
-      maxZoom: 19
-    }).addTo(pickerMap);
+    addMapTiles(pickerMap, 'picker-map-status', 'Không tải được nền bản đồ. Có thể tiếp tục nhập tọa độ bên dưới.');
 
     pickerMap.on('click', (e) => {
       setPickerLocation(e.latlng.lat, e.latlng.lng);

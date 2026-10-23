@@ -167,3 +167,155 @@ test('different device timestamps keep continuous individual series and only rea
   expect(datasets[0].data).toEqual([{ x: Date.parse('2026-10-23T00:00:00Z'), y: 1 }, { x: Date.parse('2026-10-23T00:00:10Z'), y: null }, { x: Date.parse('2026-10-23T00:00:20Z'), y: 2 }]);
   expect(datasets[1].data).toEqual([{ x: Date.parse('2026-10-23T00:00:05Z'), y: 3 }, { x: Date.parse('2026-10-23T00:00:15Z'), y: 4 }]);
 });
+
+function mapLayers(ui) {
+  const layers = [];
+  ui.context.L = {
+    map: () => ({ setView() { return this; }, on() { return this; } }),
+    tileLayer: (url, options) => {
+      const layer = { url, options, handlers: {}, on(events, handler) { events.split(' ').forEach(event => { this.handlers[event] = handler; }); return this; }, addTo() { return this; }, getTileUrl: () => 'https://tile.openstreetmap.org/1/0/1.png' };
+      layers.push(layer);
+      return layer;
+    }
+  };
+  return layers;
+}
+
+test('both map surfaces send the application origin as cross-origin tile referrer', () => {
+  const ui = loadUI();
+  const layers = mapLayers(ui);
+  ui.run('initMap(); initPickerMap();');
+  expect(layers).toHaveLength(2);
+  expect(layers.map(layer => layer.options.referrerPolicy)).toEqual(['strict-origin-when-cross-origin', 'strict-origin-when-cross-origin']);
+});
+
+test('tile failures hide blocked images, report per-map errors and recover on load or leaving the viewport', () => {
+  const ui = loadUI();
+  const layers = mapLayers(ui);
+  ui.node('dashboard-map-status').classList.add('hidden');
+  ui.node('picker-map-status').classList.add('hidden');
+  ui.run('initMap(); initPickerMap();');
+  const first = { style: {} }, second = { style: {} };
+  layers[0].handlers.tileerror?.({ tile: first });
+  expect(first.style.visibility).toBe('hidden');
+  expect(ui.node('dashboard-map-status').classList.contains('hidden')).toBe(false);
+  expect(ui.node('picker-map-status').classList.contains('hidden')).toBe(true);
+  // Another healthy tile cannot conceal an unresolved partial failure.
+  layers[0].handlers.tileload?.({ tile: { style: {} } });
+  expect(ui.node('dashboard-map-status').classList.contains('hidden')).toBe(false);
+  layers[0].handlers.tileload?.({ tile: first });
+  expect(first.style.visibility).toBe('');
+  expect(ui.node('dashboard-map-status').classList.contains('hidden')).toBe(true);
+  layers[1].handlers.tileerror?.({ tile: second });
+  expect(ui.node('picker-map-status').classList.contains('hidden')).toBe(false);
+  layers[1].handlers.tileunload?.({ tile: second });
+  expect(ui.node('picker-map-status').classList.contains('hidden')).toBe(true);
+});
+
+function tileTransport(ui) {
+  const layers = mapLayers(ui), urls = [], revoked = [];
+  ui.context.URL = {
+    createObjectURL: () => { const url = 'blob:fixture-' + (urls.length + 1); urls.push(url); return url; },
+    revokeObjectURL: url => revoked.push(url)
+  };
+  ui.run('initMap()');
+  return { layer: layers[0], urls, revoked };
+}
+const flushTilePromises = () => new Promise(setImmediate);
+
+test('HTTP 403 with a valid PNG body never becomes a displayed tile', async () => {
+  const ui = loadUI(), requests = [], completed = [];
+  let bodyRead = false;
+  ui.context.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return { ok: false, status: 403, blob: async () => { bodyRead = true; return new Blob(['PNG']); } };
+  };
+  const { layer, urls } = tileTransport(ui);
+  expect(typeof layer.createTile).toBe('function');
+  const tile = layer.createTile({ z: 1, x: 0, y: 1 }, (error, result) => completed.push({ error, result }));
+  await flushTilePromises();
+  expect(completed).toHaveLength(1);
+  expect(completed[0].error.message).toContain('403');
+  expect(completed[0].result).toBe(tile);
+  expect(bodyRead).toBe(false);
+  expect(urls).toHaveLength(0);
+  expect(tile.src).toBeUndefined();
+  expect(requests[0].url).toBe('https://tile.openstreetmap.org/1/0/1.png');
+  expect(requests[0].options).toMatchObject({ mode: 'cors', credentials: 'omit', referrerPolicy: 'strict-origin-when-cross-origin' });
+  expect(requests[0].options).not.toHaveProperty('cache');
+});
+
+test.each(['load', 'decode-error'])('tile %s completes once and releases its object URL', async outcome => {
+  const ui = loadUI(), completed = [];
+  ui.context.fetch = async () => ({ ok: true, blob: async () => new Blob(['PNG'], { type: 'image/png' }) });
+  const { layer, urls, revoked } = tileTransport(ui);
+  expect(typeof layer.createTile).toBe('function');
+  const tile = layer.createTile({ z: 1, x: 0, y: 1 }, (error, result) => completed.push({ error, result }));
+  await flushTilePromises();
+  expect(tile.src).toBe('blob:fixture-1');
+  expect(revoked).toHaveLength(0);
+  if (outcome === 'load') tile.onload(); else tile.onerror();
+  expect(completed).toHaveLength(1);
+  expect(!!completed[0].error).toBe(outcome === 'decode-error');
+  expect(completed[0].result).toBe(tile);
+  expect(revoked).toEqual(urls);
+  layer.handlers.tileunload({ tile });
+  expect(revoked).toHaveLength(1);
+});
+
+test.each(['response', 'blob'])('unloading a tile aborts pending %s work and ignores late completion', async phase => {
+  const ui = loadUI(), completed = [];
+  let finish, signal;
+  ui.context.fetch = (_url, options) => {
+    signal = options.signal;
+    if (phase === 'response') return new Promise(resolve => { finish = resolve; });
+    return Promise.resolve({ ok: true, blob: () => new Promise(resolve => { finish = resolve; }) });
+  };
+  const { layer, urls, revoked } = tileTransport(ui);
+  expect(typeof layer.createTile).toBe('function');
+  const tile = layer.createTile({ z: 1, x: 0, y: 1 }, (...args) => completed.push(args));
+  await flushTilePromises();
+  layer.handlers.tileunload({ tile });
+  expect(signal.aborted).toBe(true);
+  finish(phase === 'response' ? { ok: true, blob: async () => new Blob(['PNG']) } : new Blob(['PNG']));
+  await flushTilePromises();
+  expect(completed).toHaveLength(0);
+  expect(urls).toHaveLength(0);
+  expect(revoked).toHaveLength(0);
+  expect(tile.src).toBeUndefined();
+});
+
+test.each(['tileunload', 'tileabort'])('%s before decode aborts work, releases the object URL and suppresses late image completion', async event => {
+  const ui = loadUI(), completed = [];
+  let signal;
+  ui.context.fetch = async (_url, options) => { signal = options.signal; return { ok: true, blob: async () => new Blob(['PNG']) }; };
+  const { layer, urls, revoked } = tileTransport(ui);
+  const tile = layer.createTile({ z: 1, x: 0, y: 1 }, (...args) => completed.push(args));
+  await flushTilePromises();
+  expect(tile.src).toBe('blob:fixture-1');
+  const lateLoad = tile.onload;
+  // Leaflet 1.9.4 replaces image handlers before firing tileabort during zoom.
+  if (event === 'tileabort') tile.onload = tile.onerror = () => {};
+  layer.handlers[event]?.({ tile });
+  expect(signal.aborted).toBe(true);
+  expect(revoked).toEqual(urls);
+  expect(tile.onload).toBe(null);
+  expect(tile.onerror).toBe(null);
+  lateLoad();
+  expect(completed).toHaveLength(0);
+});
+
+test('a CORS or network failure ends the tile request without bypass or automatic retries', async () => {
+  const ui = loadUI(), completed = [];
+  let requests = 0;
+  ui.context.fetch = async () => { requests++; throw new TypeError('Failed to fetch'); };
+  const { layer, urls } = tileTransport(ui);
+  const tile = layer.createTile({ z: 1, x: 0, y: 1 }, (error, result) => completed.push({ error, result }));
+  await flushTilePromises();
+  expect(requests).toBe(1);
+  expect(completed).toHaveLength(1);
+  expect(completed[0].error).toBeInstanceOf(TypeError);
+  expect(completed[0].result).toBe(tile);
+  expect(tile.src).toBeUndefined();
+  expect(urls).toHaveLength(0);
+});

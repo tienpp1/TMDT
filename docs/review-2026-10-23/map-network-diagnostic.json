@@ -1,0 +1,30 @@
+{
+  "checked_at": "2026-10-23T01:11:47.975Z",
+  "scope": "One real tile request; no map rendering or provider fallback",
+  "page": {
+    "status": 200,
+    "referrer_policy": "strict-origin-when-cross-origin"
+  },
+  "default_dns": {
+    "code": "ECONNREFUSED",
+    "message": "queryA ECONNREFUSED tile.openstreetmap.org"
+  },
+  "public_dns_diagnostic": {
+    "server": "1.1.1.1",
+    "addresses": [
+      "151.101.1.91",
+      "151.101.65.91",
+      "151.101.129.91",
+      "151.101.193.91"
+    ]
+  },
+  "tile_request": {
+    "url": "https://tile.openstreetmap.org/11/1630/962.png",
+    "referer": "http://localhost:3000/"
+  },
+  "tile_network_error": "net::ERR_NAME_NOT_RESOLVED",
+  "tile_response": {
+    "error": "TypeError",
+    "message": "Failed to fetch"
+  }
+}

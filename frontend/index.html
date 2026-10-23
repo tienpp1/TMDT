@@ -146,6 +146,7 @@
                 </div>
                 
                 <div id="leaflet-map" style="width: 100%; height: 500px; border-radius: 4px; z-index: 1;"></div>
+                <p id="dashboard-map-status" class="map-status hidden" role="status" aria-live="polite"></p>
               </div>
             </div>
             <div class="devices-column">
@@ -461,6 +462,7 @@
             <span id="dev-modal-coords-label" style="font-size:0.75rem; color:var(--primary); font-family:monospace;">Chưa chọn</span>
           </label>
           <div id="dev-modal-map" class="map-picker-container"></div>
+          <p id="picker-map-status" class="map-status hidden" role="status" aria-live="polite"></p>
           <div class="map-picker-help"><i aria-hidden="true" class="fas fa-info-circle"></i> Nhấp trực tiếp lên bản đồ nhỏ trên để chọn vị trí bãi xe.</div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.75rem"><div><label for="dev-modal-lat">Vĩ độ</label><input type="number" id="dev-modal-lat" min="-90" max="90" step="any"></div><div><label for="dev-modal-lng">Kinh độ</label><input type="number" id="dev-modal-lng" min="-180" max="180" step="any"></div></div>
         </div>

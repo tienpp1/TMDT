@@ -76,3 +76,8 @@ test('S16 JSON larger than 16KB is rejected before authentication or storage',as
   expect(response.status).toBe(413);
   expect(response.body.error.code).toBe('PAYLOAD_TOO_LARGE');
 });
+test('S17 HTML sends an origin referrer to map tiles without exposing cross-origin paths',async()=>{
+  const response=await request(ctx.app).get('/');
+  expect(response.status).toBe(200);
+  expect(response.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+});

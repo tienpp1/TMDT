@@ -8,10 +8,15 @@ const { spawn, execFileSync } = require('child_process');
 const { chromium } = require('playwright');
 
 const root = path.resolve(__dirname, '../..');
-const evidenceDir = path.join(root, 'docs/coursework/evidence');
-const reportFile = path.join(root, 'docs/review-2026-10-23/browser-results.json');
+// Routine tests use fixture map images and keep the original coursework evidence intact.
+const artifactDir = path.resolve(process.env.E2E_ARTIFACT_DIR || path.join(root, 'artifacts/e2e'));
+const evidenceDir = path.join(artifactDir, 'screenshots');
+const reportFile = path.join(artifactDir, 'browser-results.json');
 const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmdt-e2e-'));
-const results = { started_at: new Date().toISOString(), browser: 'Chrome headless', isolated_database: true, checks: [], screenshots: [], javascript_errors: [], api_errors: [] };
+const results = { started_at: new Date().toISOString(), browser: 'Chrome headless', isolated_database: true, checks: [], screenshots: [], javascript_errors: [], api_errors: [], map_tiles: { source: 'intercepted PNG fixtures', live_provider_verified: false } };
+const tilePNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+const tileReferrers = [];
+let failTiles = false;
 let browser, server, context, currentPage;
 let baseUrl;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -33,7 +38,7 @@ async function check(name, operation) {
 }
 async function screenshot(page, name) {
   await page.screenshot({ path: path.join(evidenceDir, name), fullPage: true, animations: 'disabled' });
-  results.screenshots.push('docs/coursework/evidence/' + name);
+  results.screenshots.push(path.relative(root, path.join(evidenceDir, name)).replace(/\\/g, '/'));
 }
 async function login(page, email, password) {
   await page.locator('#email').fill(email);
@@ -70,6 +75,12 @@ async function main() {
   browser = await chromium.launch({ channel: 'chrome', headless: true });
   context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, locale: 'vi-VN', timezoneId: 'Asia/Bangkok' });
   context.setDefaultTimeout(10000);
+  await context.route('https://tile.openstreetmap.org/**', async route => {
+    tileReferrers.push(route.request().headers().referer);
+    await route.fulfill(failTiles
+      ? { status: 403, contentType: 'image/png', headers: { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' }, body: tilePNG }
+      : { status: 200, contentType: 'image/png', headers: { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' }, body: tilePNG });
+  });
   const page = await context.newPage();
   currentPage = page;
   page.on('pageerror', error => results.javascript_errors.push(error.message));
@@ -89,6 +100,27 @@ async function main() {
     assert.equal(await page.locator('#dashboard-devices-grid .device-badge').allTextContents().then(badges => badges.every(value => value.includes('Chưa có dữ liệu'))), true);
     assert(await page.locator('[data-page=settings]').isVisible());
     assert(await page.locator('[data-page=water-levels]').isVisible());
+  });
+  await check('map tiles send origin referrer, fail gracefully and recover without losing device markers', async () => {
+    await page.locator('#leaflet-map img.leaflet-tile-loaded').first().waitFor();
+    const markerCount = await page.locator('#leaflet-map .leaflet-marker-icon').count();
+    assert.equal(markerCount, 3);
+    assert(tileReferrers.length > 0);
+    assert(tileReferrers.every(value => value === baseUrl + '/'));
+    failTiles = true;
+    await page.evaluate(() => leafletMap.eachLayer(layer => { if (layer instanceof L.TileLayer) layer.redraw(); }));
+    await page.locator('#dashboard-map-status:not(.hidden)').waitFor();
+    await page.waitForFunction(() => {
+      const tiles = [...document.querySelectorAll('#leaflet-map img.leaflet-tile')];
+      return tiles.length > 0 && tiles.every(tile => tile.style.visibility === 'hidden');
+    });
+    assert.equal(await page.locator('#leaflet-map .leaflet-marker-icon').count(), markerCount);
+    assert.equal(await page.locator('#dashboard-devices-grid .device-card').count(), 3);
+    failTiles = false;
+    await page.evaluate(() => leafletMap.eachLayer(layer => { if (layer instanceof L.TileLayer) layer.redraw(); }));
+    await page.locator('#leaflet-map img.leaflet-tile-loaded').first().waitFor();
+    await page.locator('#dashboard-map-status.hidden').waitFor({ state: 'attached' });
+    assert.equal(await page.locator('#leaflet-map .leaflet-marker-icon').count(), markerCount);
   });
   const session = await context.request.get(baseUrl + '/api/auth/me');
   const siteId = (await session.json()).data.sites[0].id;
@@ -157,6 +189,16 @@ async function main() {
   await check('device creation renders hostile names as text and shows a key only once', async () => {
     await navigate(page, 'settings');
     await page.getByRole('button', { name: 'Thêm điểm đo', exact: false }).click();
+    await page.locator('#dev-modal-map img.leaflet-tile-loaded').first().waitFor();
+    failTiles = true;
+    await page.evaluate(() => pickerMap.eachLayer(layer => { if (layer instanceof L.TileLayer) layer.redraw(); }));
+    await page.locator('#picker-map-status:not(.hidden)').waitFor();
+    assert(await page.locator('#dashboard-map-status').evaluate(element => element.classList.contains('hidden')));
+    await page.waitForFunction(() => document.querySelectorAll('#dev-modal-map .leaflet-marker-icon').length === 1);
+    failTiles = false;
+    await page.evaluate(() => pickerMap.eachLayer(layer => { if (layer instanceof L.TileLayer) layer.redraw(); }));
+    await page.locator('#dev-modal-map img.leaflet-tile-loaded').first().waitFor();
+    await page.locator('#picker-map-status.hidden').waitFor({ state: 'attached' });
     const hostileName = '<img src=x onerror="window.__xss=1"> O\'Hare';
     await page.locator('#dev-modal-name').fill(hostileName);
     const createdPromise = page.waitForResponse(response => response.url().endsWith('/api/devices/site/' + siteId) && response.request().method() === 'POST');
@@ -235,6 +277,8 @@ async function main() {
   });
   assert.deepEqual(results.javascript_errors, [], 'frontend must not produce JavaScript errors');
   assert.deepEqual(results.api_errors, [], 'frontend must not call failing application APIs');
+  assert(tileReferrers.every(value => value === baseUrl + '/'), 'both maps must send the application origin on every tile request');
+  results.map_tiles = { ...results.map_tiles, http_status_cases: [200, 403], failure_payload: 'valid PNG', requests: tileReferrers.length, referrers: [...new Set(tileReferrers)], failure_and_recovery: 'passed for dashboard and picker' };
   results.status = 'passed';
 }
 
@@ -248,7 +292,9 @@ main().catch(async error => {
       active_dialogs: [...document.querySelectorAll('.modal-overlay.active')].map(element => element.id),
       admin_buttons: [...document.querySelectorAll('#admin-devices-tbody button')].map(element => ({ text: element.textContent.trim(), action: element.dataset.action, id: element.dataset.id })),
       toasts: document.querySelector('#toast-container')?.textContent,
-      connection: document.querySelector('#connection-error')?.textContent
+      connection: document.querySelector('#connection-error')?.textContent,
+      map_status: document.querySelector('#dashboard-map-status')?.textContent,
+      tiles: [...document.querySelectorAll('#leaflet-map img.leaflet-tile')].map(tile => ({ visibility: tile.style.visibility, complete: tile.complete, naturalWidth: tile.naturalWidth }))
     })).catch(() => null);
   }
   process.exitCode = 1;

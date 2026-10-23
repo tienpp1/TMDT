@@ -72,6 +72,8 @@ TH4 bổ sung **logic cảnh báo và vận hành khi dữ liệu gián đoạn*
 
 SQLite và khóa tuần tự phù hợp prototype một tiến trình. Giới hạn tốc độ nằm trong RAM và được đặt lại khi khởi động lại; chưa thay thế giải pháp bảo vệ ở cổng mạng. Bản đồ nền, font và thư viện giao diện CDN cần kết nối Internet. Bản đồ chỉ minh họa điểm đo; dữ liệu cảm biến tại một điểm không chứng minh vùng xung quanh bị ngập.
 
+Nếu nền bản đồ hiện ảnh `403 Access blocked`, cập nhật mã rồi tải lại bằng `Ctrl+Shift+R`. Ứng dụng gửi Referer ở mức origin bằng `strict-origin-when-cross-origin`, theo [chính sách OpenStreetMap](https://operations.osmfoundation.org/policies/tiles/). Khi máy chủ ảnh trả lỗi hoặc không kết nối được, giao diện báo lỗi nền bản đồ và giữ các điểm đo. Máy cần phân giải được `tile.openstreetmap.org`; kiểm tra bằng `Resolve-DnsName tile.openstreetmap.org`. Kiểm thử trình duyệt dùng ảnh tile giả lập để kiểm tra HTTP 200/403 và khả năng khôi phục; kết quả đó không xác nhận kết nối đến dịch vụ bản đồ thực tế. Ảnh kiểm thử mới lưu trong `artifacts/e2e`, tách khỏi minh chứng đồ án đã chụp.
+
 Khi triển khai công khai cần HTTPS, `COOKIE_SECURE=true`, secret/khóa riêng, sao lưu DB và kiểm chứng hạ tầng thực tế. Chưa có khảo sát khách hàng, báo giá nhà cung cấp hoặc thử nghiệm phần cứng; các chi phí trong tài liệu là giả định cho bài thiết kế.
 
 File `PROJECT_CONTEXT.md` và prompt nâng cấp cũ trong thư mục làm việc là tài liệu định hướng trước đây. Trạng thái triển khai hiện tại được xác định bởi mã nguồn, kiểm thử và tài liệu trong `docs/`; yêu cầu chính thức của giảng viên không bắt buộc PostgreSQL.

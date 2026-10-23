@@ -12,7 +12,7 @@ app.use((req,res,next)=>{
   req.id=crypto.randomUUID();
   res.set('X-Request-Id',req.id);
   res.set('X-Content-Type-Options','nosniff');
-  res.set('Referrer-Policy','same-origin');
+  res.set('Referrer-Policy','strict-origin-when-cross-origin');
   if(req.path.startsWith('/api/'))res.set('Cache-Control','no-store');
   next();
 });

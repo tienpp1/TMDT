@@ -179,6 +179,7 @@ body {
 .mobile-menu { display: none; }
 .sidebar-backdrop { display: none; }
 .connection-error { padding: 0.9rem 1rem; margin-bottom: 1rem; color: #fca5a5; border: 1px solid var(--danger); border-radius: 0.5rem; background: var(--surface); }
+.map-status { color: var(--warning); font-size: 0.8rem; line-height: 1.5; margin-top: 0.5rem; }
 .history-pagination, .demo-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-top: 1rem; }
 .form-group select { width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--bg-color); color: var(--text-main); }
 .btn:disabled { opacity: 0.5; cursor: default; }
