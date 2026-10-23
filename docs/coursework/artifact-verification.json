@@ -1,0 +1,79 @@
+{
+  "final_files": [
+    {
+      "path": "Bao_cao_IoT_Nhom10.docx",
+      "bytes": 467426,
+      "sha256": "edc2c12b494472cb7d6f7621e8486af77c5665ebe2bd21ee691e51b01da406e1"
+    },
+    {
+      "path": "TH4_hoan_thanh.docx",
+      "bytes": 39653,
+      "sha256": "9a11069f0f5eddc3347644805cf7952bb2f82649f96730a95359ab4ff9dcd779"
+    },
+    {
+      "path": "slides\\Thuyet_minh_IoT_Nhom10.pptx",
+      "bytes": 147467,
+      "sha256": "37581735315a262fe00f2e033a5867a9c9e90c78032b96e96d4575749d65b145"
+    }
+  ],
+  "pdf_page_counts": {
+    "Bao_cao_IoT_Nhom10": 5,
+    "TH4_hoan_thanh": 4
+  },
+  "report_page_limit_passed": true,
+  "visual_review": {
+    "report_pages": 5,
+    "th4_pages": 4,
+    "slides": 8,
+    "all_opened_and_inspected": true,
+    "clipping_or_overlap_found": false
+  },
+  "template": {
+    "source_unchanged": true,
+    "preserve_only_parts_unchanged": true,
+    "page_differences": [
+      {
+        "page": 1,
+        "diff_bbox": [
+          221,
+          271,
+          277,
+          293
+        ]
+      },
+      {
+        "page": 2,
+        "diff_bbox": null
+      },
+      {
+        "page": 3,
+        "diff_bbox": null
+      },
+      {
+        "page": 4,
+        "diff_bbox": [
+          119,
+          402,
+          1429,
+          1749
+        ]
+      }
+    ]
+  },
+  "pptx": {
+    "receipt_sha256_matches": true,
+    "package": "pass",
+    "layout_findings": 0,
+    "font_policy_passed": true,
+    "first_party_import_passed": true,
+    "native_powerpoint_tested": false
+  },
+  "software_evidence_snapshot": {
+    "jest_suites": 8,
+    "jest_passed": 68,
+    "jest_failed": 0,
+    "browser_checks": 10,
+    "browser_passed": true
+  },
+  "assumptions": "Simulated readings; hypothetical ultrasonic hardware H100cm; costs/prices hypothetical; team allocation proposed for confirmation; no field trial."
+}

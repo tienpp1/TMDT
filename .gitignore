@@ -1,0 +1,24 @@
+node_modules/
+.env
+.env.*
+!.env.example
+!.env.simulator.example
+*.sqlite
+*.sqlite-*
+*.sqlite-journal
+coverage/
+.superpowers/
+.worktrees/
+docs/review-2026-10-23/qa/
+docs/review-2026-10-23/source-extracts/
+*.log
+simulator/.queue.json
+simulator/.queue.json.tmp
+scratch_test.js
+test_features.js
+test_sqlite.js
+.agents/
+# Local historical prompts and agent execution notes; current handover is in docs/.
+/PROJECT_CONTEXT.md
+/PROMPT_NANG_CAP_IOT_FLOOD_MONITOR.md
+/docs/superpowers/

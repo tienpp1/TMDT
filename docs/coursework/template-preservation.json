@@ -1,0 +1,42 @@
+{
+  "source": "C:\\Users\\anhbe\\Downloads\\TH4 Bổ sung thiết kế cho đồ án cuối kỳ.docx",
+  "source_sha256": "759b9972e10885e807cf7b14d3952c5a65398ccba4ff1d82390b578e01275b4f",
+  "changed_parts": [
+    "word/document.xml"
+  ],
+  "preserve_only_parts_unchanged": true,
+  "source_tables": 6,
+  "final_tables": 6,
+  "edit_scope": "Nhóm paragraph and right-hand cells of final completion form only",
+  "package_inventory": {
+    "[Content_Types].xml": "68a172ce3ccd2668b59013260b51b96b8098155221703eef768b2805e12dcfee",
+    "_rels/.rels": "c30fe099dbcfed4ecc4ae544ccf82f432c8d3bb665e2a301df283738b196d803",
+    "word/document.xml": "2a0f21875c1a9457eb7c11df48dd6f73582a93f1da422e5125675ead64cc3510",
+    "word/_rels/document.xml.rels": "a3b147b9e60cfd4072a39050bed8d8f43c251c0dd6cefef9404a60169d05ad9b",
+    "word/footnotes.xml": "6e1fc9365331ac3f3070abd5c29b27962d9eef8f1a4d87bcb457c4c94d1fedf7",
+    "word/endnotes.xml": "b7ac8300e95d9c3b05f20e29f0862bec8fb2df88914f1b7616ec2f74a01ad8ea",
+    "word/header1.xml": "b2de05dfd23ca8ee11d957f9c42dbba87f4a1769fa4a7ab437b22e017a8e4ced",
+    "word/footer1.xml": "6ff80377d1fec3b3357b66263b7ee4415d4eb0bc56d287341f20a752ba9b2367",
+    "word/theme/theme1.xml": "b2295d3198893d2c03f5e584c749a15751b798aefdcd9bee2889f13903d68cb2",
+    "word/settings.xml": "42b12b22b5b1c7a10aa9d76b21c70fbb89afff794fac82dc2b0f76bc1d1243bd",
+    "customXml/item1.xml": "fd38bf9d14299ec0909557ff8b08b38816a6860d488f11a7c53dc63eb13ee44f",
+    "customXml/itemProps1.xml": "4c998dc0bc6eb6f38ecc20856255fff6891d5b6345a7260698c53063da4bc5f2",
+    "word/numbering.xml": "604a270fd655996484b09ae8689365e242680ecdcbc8573fe363adae282384bd",
+    "word/styles.xml": "44c2bc79697c25c5929297f2be1f70d18de651dbfeb88cb47df15915672c569e",
+    "word/webSettings.xml": "ee07406206c299bd15efc79295c9a223911089ff30b81b89c17dd93064d33d58",
+    "word/fontTable.xml": "568f06d1e30d07772c1dd2079763505d02fa722f9ca0e2105b35749c4e7b8954",
+    "docProps/core.xml": "fb27e0b8c32f246775f82bab3be824d494958df45f954493dcf7aeaca47f91bd",
+    "docProps/app.xml": "9c068fbc783b2c268ad39b067e08b83a03fb9e713b569a5cef2d7da3e841a7d8",
+    "customXml/_rels/item1.xml.rels": "80482f86e196171d66001e0e74d1900408a3aaf2463e54005d251b5f2db9a0b0",
+    "customXml/item2.xml": "730f4c81f86056e4baf4a1bef618f69ee6fca934a686e0b1df71b18aedcafc79",
+    "customXml/itemProps2.xml": "e51db651d69ecf295eb08de959dbf613303d9c20137e1c65edb8080931e0a00c",
+    "customXml/item3.xml": "5efcaf9ad70d9c29f406ee438f8f428b021a881d2c5afff0e53b00b1f67ae51e",
+    "customXml/itemProps3.xml": "c7a2340fce241360c9712704aee9640d7b31951409c7d3db3c54dbf2228d7e0a",
+    "customXml/_rels/item2.xml.rels": "2a6aee4c8a9714223a3568077411a0c82d11b484b1c9ab93a19d50b99c57baa5",
+    "customXml/_rels/item3.xml.rels": "3aa4054f7f463c6d441102c960783aa7f937d6945a0a885b624a66aafaeedb6c",
+    "customXml/item4.xml": "c14cf03e90ff54536541f6beb2b706676ad68a3bb0636af56445443308a0a8aa",
+    "customXml/itemProps4.xml": "c3deb3b353d0f66a57625a1531cc1c46e0bedcb648f32aa277c3999d2c83f46c",
+    "docProps/custom.xml": "814a55634a7f347ec9c63d82ac04f86722ba37b4a9dad6fe812260fdc141eeda",
+    "customXml/_rels/item4.xml.rels": "3c0d4d955517fe8112c945b1e56f63d5bef3c0005ccb627e40acda432e1cdc1d"
+  }
+}

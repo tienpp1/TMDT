@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1420" height="540" viewBox="0 0 1420 540">
+<rect width="100%" height="100%" fill="white"/>
+<rect x="25" y="35" width="315" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="182.5" y="73.58" font-family="Arial" font-size="26" font-weight="bold" text-anchor="middle" fill="#13283d">SIMULATOR ĐỘC LẬP</text>
+<text x="182.5" y="112.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">3 điểm đo giả lập</text>
+<text x="182.5" y="145.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">Chu kỳ gửi 5 giây</text>
+<rect x="520" y="35" width="350" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="695.0" y="73.58" font-family="Arial" font-size="26" font-weight="bold" text-anchor="middle" fill="#13283d">EXPRESS API</text>
+<text x="695.0" y="112.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">Khóa / phiên / quyền</text>
+<text x="695.0" y="145.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">Validate và transaction</text>
+<rect x="1050" y="35" width="340" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="1220.0" y="73.58" font-family="Arial" font-size="26" font-weight="bold" text-anchor="middle" fill="#13283d">SQLITE</text>
+<text x="1220.0" y="112.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">Readings, rules, alerts</text>
+<text x="1220.0" y="145.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">State và audit</text>
+<polyline points="340,110 520,110" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="508.2941876694152,115.654551943446 520,110 508.2941876694152,104.345448056554" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="430" y="82.43" font-family="Arial" font-size="21" text-anchor="middle" fill="#13283d">HTTP JSON</text>
+<polyline points="870,110 1050,110" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="1038.2941876694151,115.654551943446 1050,110 1038.2941876694151,104.345448056554" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="960" y="82.43" font-family="Arial" font-size="21" text-anchor="middle" fill="#13283d">Lưu bền vững</text>
+<rect x="520" y="300" width="350" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="695.0" y="338.58" font-family="Arial" font-size="26" font-weight="bold" text-anchor="middle" fill="#13283d">LOGIC DÙNG CHUNG</text>
+<text x="695.0" y="377.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">3 mẫu; 10 / 20 / 7 cm</text>
+<text x="695.0" y="410.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">Freshness, retry, gap</text>
+<polyline points="695,185 695,300" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="689.345448056554,288.2941876694152 695,300 700.654551943446,288.2941876694152" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="870,370 1220,185" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="1212.2933640925582,195.46937261683468 1220,185 1207.0085370004178,185.47105109116376" fill="none" stroke="#245a78" stroke-width="3"/>
+<rect x="1050" y="300" width="340" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="1220.0" y="338.58" font-family="Arial" font-size="26" font-weight="bold" text-anchor="middle" fill="#13283d">WEBSITE</text>
+<text x="1220.0" y="377.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">Manager và staff</text>
+<text x="1220.0" y="410.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">Poll 5 giây / SSE</text>
+<polyline points="1050,320 870,150" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="882.3928279583507,153.926552583975 870,150 874.6277310928792,162.14841985329775" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="1075" y="255.43" font-family="Arial" font-size="21" text-anchor="middle" fill="#13283d">API có quyền</text>
+<rect x="25" y="300" width="315" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="182.5" y="338.58" font-family="Arial" font-size="26" font-weight="bold" text-anchor="middle" fill="#13283d">PHẦN CỨNG DỰ KIẾN</text>
+<text x="182.5" y="377.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">Siêu âm + ESP32 Wi-Fi</text>
+<text x="182.5" y="410.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">Chưa chế tạo / đo thật</text>
+<polyline points="340,360 520,165" fill="none" stroke="#245a78" stroke-width="3" stroke-dasharray="8 6"/>
+<polyline points="516.2151646557061,177.43684129578665 520,165 507.9051961639678,169.76610114956662" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="710" y="517.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">Prototype chạy cục bộ; simulator thay thiết bị, không ghi thẳng DB.</text>
+</svg>

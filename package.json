@@ -1,0 +1,46 @@
+{
+  "name": "iot-flood-monitor",
+  "version": "1.0.0",
+  "description": "IoT Flood Monitor for Parking Lots",
+  "main": "backend/src/server.js",
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "dev": "node --watch backend/src/server.js",
+    "simulator": "node simulator/src/index.js",
+    "db:migrate": "node backend/scripts/migrate.js",
+    "db:seed": "node backend/scripts/seed.js",
+    "test": "jest --runInBand",
+    "test:integration": "jest --testPathPatterns=integration",
+    "test:e2e": "node tests/e2e/smoke.js",
+    "check": "node scripts/check.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "connect-sqlite3": "^0.9.18",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "express-session": "^1.18.0",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1"
+  },
+  "devDependencies": {
+    "jest": "^30.5.2",
+    "playwright": "^1.64.1",
+    "supertest": "^7.0.0"
+  },
+  "overrides": {
+    "sqlite3": "$sqlite3"
+  },
+  "engines": {
+    "node": ">=20.17.0"
+  },
+  "jest": {
+    "testMatch": [
+      "<rootDir>/tests/**/*.test.js",
+      "<rootDir>/simulator/**/*.test.js"
+    ],
+    "testTimeout": 15000,
+    "transform": {}
+  }
+}

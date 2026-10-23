@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1420" height="460" viewBox="0 0 1420 460">
+<rect width="100%" height="100%" fill="white"/>
+<rect x="30" y="120" width="330" height="120" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="195.0" y="160.24" font-family="Arial" font-size="28" font-weight="bold" text-anchor="middle" fill="#13283d">NORMAL</text>
+<text x="195.0" y="199.57999999999998" font-family="Arial" font-size="26" text-anchor="middle" fill="#13283d">Bình thường</text>
+<rect x="545" y="120" width="330" height="120" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="710.0" y="160.24" font-family="Arial" font-size="28" font-weight="bold" text-anchor="middle" fill="#13283d">WARNING</text>
+<text x="710.0" y="199.57999999999998" font-family="Arial" font-size="26" text-anchor="middle" fill="#13283d">Cảnh báo</text>
+<rect x="1060" y="120" width="330" height="120" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="1225.0" y="160.24" font-family="Arial" font-size="28" font-weight="bold" text-anchor="middle" fill="#13283d">CRITICAL</text>
+<text x="1225.0" y="199.57999999999998" font-family="Arial" font-size="26" text-anchor="middle" fill="#13283d">Nguy hiểm</text>
+<polyline points="360,165 545,165" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="533.2941876694152,170.654551943446 545,165 533.2941876694152,159.345448056554" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="452" y="114.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">3 mẫu ≥10</text>
+<polyline points="875,165 1060,165" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="1048.2941876694151,170.654551943446 1060,165 1048.2941876694151,159.345448056554" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="967" y="114.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">3 mẫu ≥20</text>
+<polyline points="195,120 195,45 1225,45" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="1225,45 1225,120" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="1219.345448056554,108.2941876694152 1225,120 1230.654551943446,108.2941876694152" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="710" y="24.09" font-family="Arial" font-size="23" text-anchor="middle" fill="#13283d">NORMAL → CRITICAL trực tiếp khi đủ 3 mẫu ≥20 cm</text>
+<polyline points="1225,240 1225,315 195,315" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="710,240 710,315" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="195,315 195,240" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="200.654551943446,251.7058123305848 195,240 189.345448056554,251.7058123305848" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="710" y="344.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">WARNING hoặc CRITICAL → NORMAL: 3 mẫu &lt;7 cm</text>
+<text x="710" y="385.75" font-family="Arial" font-size="25" text-anchor="middle" fill="#13283d">Mẫu lỗi / gap &gt;30 giây: reset đếm. Mẫu cũ / retry: không tăng đếm.</text>
+<text x="710" y="428.75" font-family="Arial" font-size="25" text-anchor="middle" fill="#13283d">Ack không đóng cảnh báo. Offline / stale không tự trả normal.</text>
+</svg>

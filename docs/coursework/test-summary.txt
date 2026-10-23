@@ -1,0 +1,1 @@
+Kiểm thử phần mềm đã đạt trong lần chạy lưu tại docs/review-2026-10-23/test-results.json (Jest) và browser-results.json (10 bước Chrome headless trên DB riêng, không có lỗi JavaScript/API). Chi tiết phạm vi/kết quả xem docs/test-results.md. Chưa thử độ chính xác cảm biến hoặc điều kiện thực địa.

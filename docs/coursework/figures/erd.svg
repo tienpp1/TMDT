@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1420" height="650" viewBox="0 0 1420 650">
+<rect width="100%" height="100%" fill="white"/>
+<rect x="25" y="25" width="320" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="185.0" y="61.92" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#13283d">users</text>
+<text x="185.0" y="101.25999999999999" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">id; email; password_hash</text>
+<text x="185.0" y="132.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">display_name; is_active</text>
+<rect x="550" y="25" width="320" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="710.0" y="61.92" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#13283d">site_users</text>
+<text x="710.0" y="101.25999999999999" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">site_id + user_id (PK)</text>
+<text x="710.0" y="132.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">role: manager / staff</text>
+<rect x="1075" y="25" width="320" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="1235.0" y="61.92" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#13283d">sites</text>
+<text x="1235.0" y="101.25999999999999" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">id; name; location</text>
+<text x="1235.0" y="132.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">is_active</text>
+<rect x="550" y="250" width="320" height="170" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="710.0" y="286.92" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#13283d">devices</text>
+<text x="710.0" y="326.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">id; site_id; key_hash</text>
+<text x="710.0" y="357.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">latest_*; *_count</text>
+<text x="710.0" y="388.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">current_alert_level</text>
+<rect x="25" y="465" width="320" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="185.0" y="501.92" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#13283d">readings</text>
+<text x="185.0" y="541.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">device_id + message_id</text>
+<text x="185.0" y="572.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">time; level; quality</text>
+<text x="185.0" y="603.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">history_only</text>
+<rect x="550" y="465" width="320" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="710.0" y="501.92" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#13283d">alert_rules</text>
+<text x="710.0" y="541.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">device_id; 10 / 20 / 7</text>
+<text x="710.0" y="572.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">sample_count; version</text>
+<rect x="1075" y="465" width="320" height="150" rx="3" fill="#eaf2f6" stroke="#245a78" stroke-width="2"/>
+<text x="1235.0" y="501.92" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#13283d">alerts</text>
+<text x="1235.0" y="541.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">device_id; episode_id</text>
+<text x="1235.0" y="572.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">ack_by; ack_at</text>
+<text x="1235.0" y="603.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">resolved_at; rule_version</text>
+<polyline points="345,100 550,100" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="538.2941876694152,105.654551943446 550,100 538.2941876694152,94.345448056554" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="450" y="75.25999999999999" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">1 → N</text>
+<polyline points="1075,100 870,100" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="881.7058123305848,94.345448056554 870,100 881.7058123305848,105.654551943446" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="972" y="75.25999999999999" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">1 → N</text>
+<polyline points="1235,175 870,300" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="879.242359698282,290.8578565310113 870,300 882.9064299097291,301.55694154843695" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="1100" y="246.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">1 → N</text>
+<polyline points="550,360 345,465" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="352.840906809538,454.63080618350006 345,465 357.99645438069746,464.69639906052566" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="420" y="403.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">1 → N</text>
+<polyline points="710,420 710,465" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="704.345448056554,453.2941876694152 710,465 715.654551943446,453.2941876694152" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="870,365 1075,465" fill="none" stroke="#245a78" stroke-width="3"/>
+<polyline points="1062.0000960461418,464.9500281032876 1075,465 1066.9582744471404,454.7857623812403" fill="none" stroke="#245a78" stroke-width="3"/>
+<text x="1000" y="403.26" font-family="Arial" font-size="22" text-anchor="middle" fill="#13283d">1 → N</text>
+<text x="200" y="309.92" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#13283d">Unique reading:</text>
+<text x="200" y="350.92" font-family="Arial" font-size="24" text-anchor="middle" fill="#13283d">(device_id, message_id)</text>
+<text x="1220" y="319.92" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#13283d">Cùng một đợt:</text>
+<text x="1220" y="362.75" font-family="Arial" font-size="25" text-anchor="middle" fill="#13283d">ack ≠ resolve</text>
+</svg>

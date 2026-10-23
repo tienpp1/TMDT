@@ -1,0 +1,59 @@
+{
+  "started_at": "2026-10-23T00:39:09.527Z",
+  "browser": "Chrome headless",
+  "isolated_database": true,
+  "checks": [
+    {
+      "name": "manager dashboard starts with three points and no fabricated readings",
+      "status": "passed"
+    },
+    {
+      "name": "normal then warning transitions only after the third sample",
+      "status": "passed"
+    },
+    {
+      "name": "critical dashboard renders real chart and current sensor quality",
+      "status": "passed"
+    },
+    {
+      "name": "alert acknowledgement preserves critical level and active episode",
+      "status": "passed"
+    },
+    {
+      "name": "manager simulator uses the shared one-sample endpoint and shows thresholds",
+      "status": "passed"
+    },
+    {
+      "name": "history chart, range selector and CSV download work",
+      "status": "passed"
+    },
+    {
+      "name": "device creation renders hostile names as text and shows a key only once",
+      "status": "passed"
+    },
+    {
+      "name": "mobile menu, navigation and logout are usable at 390 pixels",
+      "status": "passed"
+    },
+    {
+      "name": "staff receives clean dashboard, reports and no administration or simulator",
+      "status": "passed"
+    },
+    {
+      "name": "backend outage displays connection failure and preserves previous values",
+      "status": "passed"
+    }
+  ],
+  "screenshots": [
+    "docs/coursework/evidence/desktop-critical-dashboard.png",
+    "docs/coursework/evidence/alert-center.png",
+    "docs/coursework/evidence/device-simulator.png",
+    "docs/coursework/evidence/mobile-navigation.png",
+    "docs/coursework/evidence/staff-reports.png"
+  ],
+  "javascript_errors": [],
+  "api_errors": [],
+  "port": 51213,
+  "status": "passed",
+  "finished_at": "2026-10-23T00:39:56.256Z"
+}

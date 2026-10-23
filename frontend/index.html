@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Giám sát ngập bãi xe (DỮ LIỆU MÔ PHỎNG)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <link rel="stylesheet" href="/css/style.css?v=1.1.0">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+</head>
+<body>
+  <div id="login-view" class="view">
+    <div class="login-container">
+      <div class="login-box">
+        <div class="login-header">
+          <h2>Đăng nhập Hệ thống</h2>
+          <p class="subtitle">DỮ LIỆU MÔ PHỎNG</p>
+        </div>
+        <form id="login-form">
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="email" required placeholder="admin@example.com">
+          </div>
+          <div class="form-group">
+            <label>Mật khẩu</label>
+            <input type="password" id="password" required placeholder="••••••••">
+          </div>
+          <div id="login-error" class="error-msg"></div>
+          <button type="submit" class="btn btn-primary btn-full">Đăng nhập</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="app-view" class="view hidden">
+    <!-- Sidebar -->
+    <aside id="main-sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <h2>Flood Monitor</h2>
+        <span class="simulation-badge">MÔ PHỎNG</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" data-page="dashboard" class="nav-item active"><i aria-hidden="true" class="fas fa-home"></i> Tổng quan</a>
+        <a href="#" data-page="water-levels" class="nav-item manager-only"><i aria-hidden="true" class="fas fa-water"></i> Mô phỏng thiết bị</a>
+        <a href="#" data-page="devices" class="nav-item"><i aria-hidden="true" class="fas fa-satellite-dish"></i> Điểm đo & Lịch sử</a>
+        <a href="#" data-page="alerts" class="nav-item"><i aria-hidden="true" class="fas fa-exclamation-triangle"></i> Trung tâm Cảnh báo</a>
+        <a href="#" data-page="incidents" class="nav-item"><i aria-hidden="true" class="fas fa-clipboard-list"></i> Hồ sơ Sự cố</a>
+        <a href="#" data-page="reports" class="nav-item"><i aria-hidden="true" class="fas fa-chart-bar"></i> Báo cáo</a>
+        <a href="#" data-page="settings" class="nav-item manager-only"><i aria-hidden="true" class="fas fa-cog"></i> Quản trị</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-profile">
+          <div class="avatar"><i aria-hidden="true" class="fas fa-user"></i></div>
+          <div class="user-info">
+            <span id="user-name" class="name">User</span>
+            <span id="user-role" class="role">Role</span>
+          </div>
+        </div>
+        <button id="logout-btn" class="btn btn-sm btn-outline" aria-label="Đăng xuất" title="Đăng xuất"><i aria-hidden="true" class="fas fa-sign-out-alt"></i></button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <button id="sidebar-backdrop" class="sidebar-backdrop hidden" aria-label="Đóng trình đơn"></button>
+    <main class="main-content">
+      <!-- Topbar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="menu-toggle" class="icon-btn mobile-menu" aria-label="Mở trình đơn" aria-expanded="false" aria-controls="main-sidebar"><i aria-hidden="true" class="fas fa-bars"></i></button>
+          <select id="site-selector" class="site-selector">
+            <!-- Populated by JS -->
+          </select>
+        </div>
+        <div class="topbar-right">
+          <div class="system-status">
+            <span id="connection-status" class="status-dot"></span>
+            <span id="last-updated-time">Cập nhật: --:--:--</span>
+          </div>
+          <button id="notification-btn" class="icon-btn" aria-label="Mở trung tâm cảnh báo">
+            <i aria-hidden="true" class="fas fa-bell"></i>
+            <span class="badge" id="notification-badge" style="display:none">0</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Pages Container -->
+      <div class="pages-container">
+        <div id="connection-error" class="connection-error hidden" role="alert"></div>
+        
+        <!-- Dashboard Page -->
+        <div id="page-dashboard" class="page active">
+          <div class="page-header">
+            <h2>Tổng quan hệ thống</h2>
+          </div>
+          
+          <!-- KPIs -->
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <div class="kpi-icon text-primary"><i aria-hidden="true" class="fas fa-satellite-dish"></i></div>
+              <div class="kpi-data">
+                <span class="kpi-value" id="kpi-total-devices">0</span>
+                <span class="kpi-label">Điểm đo hoạt động</span>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon text-danger"><i aria-hidden="true" class="fas fa-exclamation-circle"></i></div>
+              <div class="kpi-data">
+                <span class="kpi-value" id="kpi-active-alerts">0</span>
+                <span class="kpi-label">Cảnh báo đang mở</span>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon text-warning"><i aria-hidden="true" class="fas fa-clipboard-list"></i></div>
+              <div class="kpi-data">
+                <span class="kpi-value" id="kpi-active-incidents">0</span>
+                <span class="kpi-label">Sự cố đang xử lý</span>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon text-muted"><i aria-hidden="true" class="fas fa-unlink"></i></div>
+              <div class="kpi-data">
+                <span class="kpi-value" id="kpi-offline-devices">0</span>
+                <span class="kpi-label">Mất kết nối/Lỗi</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Priority Alerts Banner -->
+          <div id="priority-banner" class="priority-banner hidden">
+            <!-- Filled dynamically -->
+          </div>
+
+          <!-- Main Layout: Map & Devices -->
+          <div class="dashboard-layout">
+            <div class="map-column">
+              <div class="site-map-container" style="position: relative;">
+                <!-- Weather Simulator Panel (Floating) -->
+                <div class="weather-panel" id="weather-panel">
+                  <h4><i aria-hidden="true" class="fas fa-map-marker-alt"></i> Vị trí điểm đo</h4>
+                  <p class="text-muted" style="font-size:0.8rem; margin:8px 0">Vòng tròn chỉ là vùng minh họa; mực nước được đo tại từng điểm.</p>
+                  <label style="font-size:0.8rem"><input type="checkbox" id="toggle-regions" checked onchange="app.toggleRegions(this.checked)"> Hiển thị vùng minh họa</label>
+                  <button class="btn btn-sm btn-outline manager-only" style="margin-top:10px" onclick="navigate('water-levels')">Mô phỏng thiết bị</button>
+                </div>
+                
+                <div id="leaflet-map" style="width: 100%; height: 500px; border-radius: 4px; z-index: 1;"></div>
+              </div>
+            </div>
+            <div class="devices-column">
+              <h3>Trạng thái điểm đo</h3>
+              <div class="devices-grid" id="dashboard-devices-grid">
+                <!-- Device cards -->
+              </div>
+            </div>
+          </div>
+          
+          <div class="dashboard-charts">
+            <h3>Biểu đồ mực nước</h3>
+            <div class="chart-container">
+              <canvas id="dashboard-chart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Devices & History Page -->
+        <div id="page-devices" class="page hidden">
+          <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h2><i aria-hidden="true" class="fas fa-satellite-dish" style="color:var(--primary); margin-right:8px;"></i> Điểm đo & Lịch sử Giám sát</h2>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-sm btn-outline" onclick="loadHistoryPage()"><i aria-hidden="true" class="fas fa-sync-alt"></i> Làm mới</button>
+              <button class="btn btn-sm btn-outline" onclick="exportHistoryCSV()"><i aria-hidden="true" class="fas fa-file-csv"></i> Xuất CSV</button>
+            </div>
+          </div>
+
+          <!-- History Filter Toolbar -->
+          <div class="history-toolbar">
+            <div class="history-filters">
+              <label style="font-size:0.85rem; color:var(--text-muted);"><i aria-hidden="true" class="fas fa-warehouse"></i> Chọn điểm đo:</label>
+              <select id="history-device-select" onchange="historyPage=1; filterHistoryDisplay()">
+                <option value="all">Tất cả điểm đo</option>
+              </select>
+            </div>
+            <div class="history-filters">
+              <label style="font-size:0.85rem; color:var(--text-muted);"><i aria-hidden="true" class="fas fa-clock"></i> Khung thời gian:</label>
+              <select id="history-time-range" onchange="historyPage=1; loadHistoryPage()">
+                <option value="1">1 giờ qua</option>
+                <option value="24">24 giờ qua</option>
+                <option value="48">48 giờ qua</option>
+                <option value="168">7 ngày qua</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Analytics KPI Cards -->
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <div class="kpi-icon text-primary"><i aria-hidden="true" class="fas fa-water"></i></div>
+              <div class="kpi-data">
+                <span class="kpi-value" id="hist-current-level">-- cm</span>
+                <span class="kpi-label">Mực nước hiện tại</span>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon text-danger"><i aria-hidden="true" class="fas fa-arrow-up"></i></div>
+              <div class="kpi-data">
+                <span class="kpi-value" id="hist-peak-level">-- cm</span>
+                <span class="kpi-label">Mực nước đỉnh (Peak)</span>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon text-warning"><i aria-hidden="true" class="fas fa-chart-line"></i></div>
+              <div class="kpi-data">
+                <span class="kpi-value" id="hist-avg-level">-- cm</span>
+                <span class="kpi-label">Mực nước trung bình</span>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon text-info"><i aria-hidden="true" class="fas fa-bell"></i></div>
+              <div class="kpi-data">
+                <span class="kpi-value" id="hist-alerts-count">0</span>
+                <span class="kpi-label">Tổng số cảnh báo</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- History Chart Box -->
+          <div class="chart-box">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+              <h3 style="font-size:1rem; font-weight:600;"><i aria-hidden="true" class="fas fa-chart-area text-primary"></i> Biểu đồ diễn biến mực nước theo thời gian</h3>
+              <span id="history-chart-device-name" style="font-size:0.85rem; color:var(--text-muted);">Tất cả bãi xe</span>
+            </div>
+            <div style="height: 320px; position: relative;">
+              <canvas id="history-chart"></canvas>
+            </div>
+          </div>
+
+          <!-- Detailed Readings Table -->
+          <div class="alerts-table-container">
+            <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;"><i aria-hidden="true" class="fas fa-list"></i> Bảng nhật ký đo lường chi tiết</h3>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Thời gian đo</th>
+                  <th>Bãi xe / Điểm đo</th>
+                  <th>Mực nước (cm)</th>
+                  <th>So với ngưỡng hiện tại</th>
+                  <th>Chất lượng cảm biến</th>
+                  <th>Xu hướng</th>
+                </tr>
+              </thead>
+              <tbody id="history-readings-tbody">
+                <!-- Rendered by JS -->
+              </tbody>
+            </table>
+            <div class="history-pagination"><button class="btn btn-sm btn-outline" id="history-prev" onclick="changeHistoryPage(-1)">Trang trước</button><span id="history-page-label"></span><button class="btn btn-sm btn-outline" id="history-next" onclick="changeHistoryPage(1)">Trang sau</button></div>
+          </div>
+        </div>
+
+        <!-- Alerts Center Page -->
+        <div id="page-alerts" class="page hidden">
+          <div class="page-header">
+            <h2>Trung tâm Cảnh báo</h2>
+          </div>
+          <div class="alerts-table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Thời gian mở</th>
+                  <th>Mức độ</th>
+                  <th>Điểm đo</th>
+                  <th>Trạng thái</th>
+                  <th>Người xác nhận (ACK)</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody id="alerts-tbody">
+                <!-- Alerts row -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Incidents Page -->
+        <div id="page-incidents" class="page hidden">
+          <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h2><i aria-hidden="true" class="fas fa-clipboard-list" style="color:var(--warning); margin-right:8px;"></i> Hồ sơ Sự cố</h2>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-primary btn-sm manager-only" onclick="openAssignStaffModal()"><i aria-hidden="true" class="fas fa-user-plus"></i> Phân công nhân sự</button>
+              <button class="btn btn-warning btn-sm" onclick="openReportIncidentModal()"><i aria-hidden="true" class="fas fa-plus-circle"></i> Báo cáo sự cố mới</button>
+            </div>
+          </div>
+          <div class="incidents-table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Mã Sự Cố</th>
+                  <th>Bãi xe / Vị trí</th>
+                  <th>Tiêu đề sự cố</th>
+                  <th>Trạng thái</th>
+                  <th>Người báo cáo</th>
+                  <th>Người phụ trách</th>
+                  <th>Ngày tạo</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody id="incidents-tbody">
+                <!-- Incident row -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- More Pages placeholders -->
+        <!-- Reports Page -->
+        <div id="page-reports" class="page hidden">
+          <div class="page-header">
+            <h2>Báo cáo hệ thống</h2>
+          </div>
+          <div class="kpi-card" style="width:fit-content; margin-bottom: 2rem;">
+            <div class="kpi-icon text-info"><i aria-hidden="true" class="fas fa-clock"></i></div>
+            <div class="kpi-data">
+              <span class="kpi-value" id="kpi-avg-resolution">--</span>
+              <span class="kpi-label">Trung bình xử lý sự cố (phút)</span>
+            </div>
+          </div>
+          
+          <h3>Tải dữ liệu đo</h3>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Thiết bị</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="reports-devices-tbody"></tbody>
+          </table>
+        </div>
+        <div id="page-settings" class="page hidden">
+          <div class="page-header">
+            <h2>Quản trị hệ thống</h2>
+          </div>
+          
+          <div class="settings-layout">
+            <!-- Settings Nav -->
+            <div class="settings-nav">
+              <button class="btn btn-outline settings-tab active" data-target="admin-devices">Thiết bị</button>
+              <button class="btn btn-outline settings-tab" data-target="admin-users">Nhân sự</button>
+              <button class="btn btn-outline settings-tab" data-target="admin-audit">Nhật ký hoạt động</button>
+            </div>
+            
+            <!-- Settings Content -->
+            <div class="settings-content">
+              <!-- Devices Tab -->
+              <div id="admin-devices" class="settings-pane active">
+                <div class="pane-header">
+                  <h3>Quản lý điểm đo & ngưỡng cảnh báo</h3>
+                  <button class="btn btn-primary btn-sm" onclick="openAddDeviceModal()"><i aria-hidden="true" class="fas fa-plus"></i> Thêm điểm đo</button>
+                </div>
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Tên điểm đo</th>
+                      <th>Vị trí (Point)</th>
+                      <th>Ranh giới (km)</th>
+                      <th>Mức độ ngập</th>
+                      <th>Cảnh báo (cm)</th>
+                      <th>Nguy hiểm (cm)</th>
+                      <th>Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-devices-tbody"></tbody>
+                </table>
+              </div>
+
+              <!-- Users Tab -->
+              <div id="admin-users" class="settings-pane hidden">
+                <div class="pane-header">
+                  <h3>Quản lý Nhân sự</h3>
+                  <button class="btn btn-primary btn-sm" onclick="showAddUserModal()">+ Thêm nhân sự</button>
+                </div>
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Tên</th>
+                      <th>Email</th>
+                      <th>Vai trò</th>
+                      <th>Trạng thái</th>
+                      <th>Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-users-tbody"></tbody>
+                </table>
+              </div>
+
+              <!-- Audit Tab -->
+              <div id="admin-audit" class="settings-pane hidden">
+                <div class="pane-header">
+                  <h3>Nhật ký hoạt động</h3>
+                </div>
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Thời gian</th>
+                      <th>Người thực hiện</th>
+                      <th>Hành động</th>
+                      <th>Thực thể</th>
+                      <th>Dữ liệu mới</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-audit-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="page-water-levels" class="page hidden">
+          <div class="page-header">
+            <h2><i aria-hidden="true" class="fas fa-water" style="color: var(--primary);"></i> Mô phỏng thiết bị</h2>
+          </div>
+          <p class="text-muted" style="margin-bottom:1.5rem; line-height:1.6">DỮ LIỆU MÔ PHỎNG. Mỗi lần gửi tạo một số đo qua cùng luồng kiểm tra dữ liệu thiết bị. Mặc định cần 3 mẫu liên tiếp để xác nhận cảnh báo hoặc kết thúc. Dừng gửi để kiểm tra mất kết nối sau 30 giây. Khi kiểm tra, hãy dừng bộ mô phỏng CLI cho các điểm này.</p>
+          <div class="settings-content" style="max-width:720px">
+            <div class="form-group"><label for="demo-device">Điểm đo</label><select id="demo-device"><option value="all">Tất cả điểm đo</option></select></div>
+            <div class="form-group"><label for="demo-scenario">Kịch bản</label><select id="demo-scenario"><option value="normal">Bình thường / nước rút</option><option value="warning">Chạm ngưỡng cảnh báo Vàng</option><option value="critical">Chạm ngưỡng nguy hiểm Đỏ</option><option value="sensor-error">Lỗi cảm biến</option><option value="stale">Dữ liệu cũ (chỉ lịch sử)</option><option value="custom">Mực nước tự chọn</option></select></div>
+            <div class="form-group"><label for="demo-level">Mực nước tự chọn (cm, chỉ dùng cho kịch bản tự chọn)</label><input type="number" id="demo-level" min="0" max="90" step="0.1" value="5"></div>
+            <div class="demo-actions"><button class="btn btn-primary" onclick="sendDemoSample()">Gửi 1 mẫu</button><button class="btn btn-outline" id="demo-start" onclick="startDemo()">Chạy mỗi 5 giây</button><button class="btn btn-outline" onclick="stopDemo()">Dừng gửi</button></div>
+            <p id="demo-status" role="status" style="margin-top:1rem">Đã dừng. Chưa gửi số đo.</p>
+            <div class="devices-grid" id="water-levels-devices-grid" style="margin-top:1rem"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Custom Modals (UI Riêng biệt, Dark Mode cao cấp) -->
+  
+  <!-- Modal 1: Thêm / Sửa Bãi Xe -->
+  <div id="modal-device" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3><i aria-hidden="true" class="fas fa-warehouse text-primary"></i> <span id="device-modal-title">Thêm điểm đo mới</span></h3>
+        <button class="modal-close" onclick="closeModal('modal-device')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="dev-modal-id">
+        <input type="hidden" id="dev-modal-rule-version">
+        <div class="form-group" style="margin-bottom:0.75rem;">
+          <label>Tên điểm đo <span class="text-danger">*</span></label>
+          <input type="text" id="dev-modal-name" placeholder="Ví dụ: Cổng xuống hầm">
+        </div>
+        <div class="form-group" style="margin-bottom:0.75rem;">
+          <label>Vị trí / Điểm đo (Point Label)</label>
+          <input type="text" id="dev-modal-point" placeholder="Ví dụ: Khu tầng hầm B2">
+        </div>
+
+        <div class="form-group" style="margin-bottom:0.75rem;">
+          <label style="display:flex; justify-content:space-between; align-items:center;">
+            <span><i aria-hidden="true" class="fas fa-map-marker-alt text-danger"></i> Vị trí trên bản đồ:</span>
+            <span id="dev-modal-coords-label" style="font-size:0.75rem; color:var(--primary); font-family:monospace;">Chưa chọn</span>
+          </label>
+          <div id="dev-modal-map" class="map-picker-container"></div>
+          <div class="map-picker-help"><i aria-hidden="true" class="fas fa-info-circle"></i> Nhấp trực tiếp lên bản đồ nhỏ trên để chọn vị trí bãi xe.</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.75rem"><div><label for="dev-modal-lat">Vĩ độ</label><input type="number" id="dev-modal-lat" min="-90" max="90" step="any"></div><div><label for="dev-modal-lng">Kinh độ</label><input type="number" id="dev-modal-lng" min="-180" max="180" step="any"></div></div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0.75rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+            <label><i aria-hidden="true" class="fas fa-circle-notch text-info"></i> Bán kính ranh giới (Vùng nguy cơ):</label>
+            <span id="dev-modal-radius-val" style="font-weight:bold; color:var(--primary); font-size:0.95rem;">1.5 km</span>
+          </div>
+          <input type="range" id="dev-modal-radius-slider" min="1" max="5" step="0.5" value="1.5" style="width:100%; accent-color:var(--primary);" oninput="updateDeviceModalRadius(this.value)">
+          <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+            <span>1.0 km</span>
+            <span>2.5 km</span>
+            <span>5.0 km</span>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0.75rem;">
+          <label><i aria-hidden="true" class="fas fa-tachometer-alt"></i> Mức nguy cơ minh họa trên bản đồ:</label>
+          <div class="risk-selector">
+            <div class="risk-option risk-green selected" id="risk-opt-1" onclick="selectRiskLevel(1)">
+              <strong style="color:#22c55e;"><i aria-hidden="true" class="fas fa-shield-alt"></i> Xanh (Mức 1)</strong>
+              <span style="font-size:0.75rem; color:var(--text-muted);">Cao ráo, thoát nhanh</span>
+            </div>
+            <div class="risk-option risk-yellow" id="risk-opt-3" onclick="selectRiskLevel(3)">
+              <strong style="color:#fbbf24;"><i aria-hidden="true" class="fas fa-exclamation"></i> Vàng (Mức 3)</strong>
+              <span style="font-size:0.75rem; color:var(--text-muted);">Trung bình</span>
+            </div>
+            <div class="risk-option risk-red" id="risk-opt-5" onclick="selectRiskLevel(5)">
+              <strong style="color:#ef4444;"><i aria-hidden="true" class="fas fa-exclamation-triangle"></i> Đỏ (Mức 5)</strong>
+              <span style="font-size:0.75rem; color:var(--text-muted);">Trũng thấp, ngập nhanh</span>
+            </div>
+          </div>
+          <input type="hidden" id="dev-modal-risk" value="1">
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.5rem;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label style="font-size:0.75rem;">Cảnh báo Vàng (cm)</label>
+            <input type="number" id="dev-modal-warn" value="10" min="1" max="89" step="0.1">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label style="font-size:0.75rem;">Nguy hiểm Đỏ (cm)</label>
+            <input type="number" id="dev-modal-crit" value="20" min="2" max="90" step="0.1">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label style="font-size:0.75rem;">Kết thúc đợt (cm)</label>
+            <input type="number" id="dev-modal-clr" value="7" min="0" max="88" step="0.1">
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:1rem; margin-bottom:0"><label for="dev-modal-samples">Số mẫu liên tiếp xác nhận (1–60)</label><input type="number" id="dev-modal-samples" min="1" max="60" value="3"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-outline" onclick="closeModal('modal-device')">Hủy bỏ</button>
+        <button class="btn btn-sm btn-primary" onclick="submitDeviceModal()"><i aria-hidden="true" class="fas fa-save"></i> Lưu điểm đo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Xác nhận Xóa Bãi Xe -->
+  <div id="modal-delete-device" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3><i aria-hidden="true" class="fas fa-pause text-warning"></i> Vô hiệu hóa điểm đo</h3>
+        <button class="modal-close" onclick="closeModal('modal-delete-device')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="delete-device-id">
+        <p style="font-size:0.95rem; line-height:1.5;">
+          Vô hiệu hóa điểm đo <strong id="delete-device-name" style="color:var(--danger);"></strong>?
+        </p>
+        <p style="font-size:0.8rem; color:var(--text-muted);">
+          Dừng nhận số đo mới. Lịch sử và cảnh báo được giữ lại. Có thể kích hoạt lại trong Quản trị.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-outline" onclick="closeModal('modal-delete-device')">Hủy</button>
+        <button class="btn btn-sm btn-danger" onclick="confirmDeleteDevice()">Vô hiệu hóa</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Báo cáo Sự Cố Mới (Nhân viên & Quản lý) -->
+  <div id="modal-report-incident" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3><i aria-hidden="true" class="fas fa-plus-circle text-warning"></i> Báo Cáo Sự Cố Mới</h3>
+        <button class="modal-close" onclick="closeModal('modal-report-incident')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:0.75rem;">
+          <label>Bãi xe / Vị trí xảy ra sự cố <span class="text-danger">*</span></label>
+          <select id="report-modal-device" style="width:100%; padding:0.75rem; background:var(--bg-color); border:1px solid var(--border); color:var(--text-main); border-radius:0.5rem;"></select>
+        </div>
+        <div class="form-group" style="margin-bottom:0.75rem;">
+          <label>Tiêu đề sự cố <span class="text-danger">*</span></label>
+          <input type="text" id="report-modal-title" placeholder="Ví dụ: Nước tràn cống thoát nước bãi xe, nguy cơ ngập xe">
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:0.75rem;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label>Thời gian ghi nhận</label>
+            <input type="datetime-local" id="report-modal-time">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label>Tài khoản báo cáo</label>
+            <input type="text" id="report-modal-author" readonly style="opacity:0.85; cursor:not-allowed;">
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Ghi chú chi tiết / Mô tả sự cố</label>
+          <textarea id="report-modal-note" rows="3" placeholder="Mô tả chi tiết tình trạng hiện trường, độ sâu nước ngập hoặc đề xuất xử lý..." style="width:100%; padding:0.75rem; background:var(--bg-color); border:1px solid var(--border); color:var(--text-main); border-radius:0.5rem; outline:none; resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-outline" onclick="closeModal('modal-report-incident')">Hủy</button>
+        <button class="btn btn-sm btn-warning" onclick="submitReportIncident()"><i aria-hidden="true" class="fas fa-paper-plane"></i> Gửi Báo Cáo Sự Cố</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 4: Phân Công Nhân Sự (Dành cho Quản Lý) -->
+  <div id="modal-assign-staff" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3><i aria-hidden="true" class="fas fa-user-plus text-primary"></i> Phân Công Nhân Sự Xử Lý Sự Cố</h3>
+        <button class="modal-close" onclick="closeModal('modal-assign-staff')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:0.75rem;">
+          <label>Chọn sự cố cần phân công giải quyết <span class="text-danger">*</span></label>
+          <select id="assign-modal-incident" style="width:100%; padding:0.75rem; background:var(--bg-color); border:1px solid var(--border); color:var(--text-main); border-radius:0.5rem;"></select>
+        </div>
+        <div class="form-group" style="margin-bottom:0.75rem;">
+          <label>Chọn nhân viên giải quyết <span class="text-danger">*</span></label>
+          <select id="assign-modal-staff" style="width:100%; padding:0.75rem; background:var(--bg-color); border:1px solid var(--border); color:var(--text-main); border-radius:0.5rem;"></select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Ghi chú chỉ đạo của Quản lý</label>
+          <textarea id="assign-modal-note" rows="3" placeholder="Ghi chú hướng dẫn nhân viên xử lý sự cố, ví dụ: 'Ưu tiên kích hoạt máy bơm số 2 và hỗ trợ di dời xe tầng hầm...'" style="width:100%; padding:0.75rem; background:var(--bg-color); border:1px solid var(--border); color:var(--text-main); border-radius:0.5rem; outline:none; resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-outline" onclick="closeModal('modal-assign-staff')">Hủy</button>
+        <button class="btn btn-sm btn-primary" onclick="submitAssignStaff()"><i aria-hidden="true" class="fas fa-check-circle"></i> Xác nhận Phân Công</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 5: Xem Chi Tiết & Ghi Chú Sự Cố -->
+  <div id="modal-incident-notes" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div>
+          <h3><i aria-hidden="true" class="fas fa-comments text-info"></i> Lịch Sử Ghi Chú & Xử Lý Sự Cố</h3>
+          <p id="incident-notes-title" style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;"></p>
+        </div>
+        <button class="modal-close" onclick="closeModal('modal-incident-notes')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="incident-notes-id">
+        <div id="incident-notes-list" class="notes-timeline">
+          <!-- Populated by JS -->
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Thêm ghi chú tiến độ mới</label>
+          <textarea id="incident-new-note" rows="2" placeholder="Nhập cập nhật tiến độ xử lý..." style="width:100%; padding:0.75rem; background:var(--bg-color); border:1px solid var(--border); color:var(--text-main); border-radius:0.5rem; outline:none; resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button id="incident-complete-btn" class="btn btn-sm btn-success" onclick="completeIncidentFromModal()"><i aria-hidden="true" class="fas fa-check-double"></i> Hoàn tất sự cố</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm btn-outline" onclick="closeModal('modal-incident-notes')">Đóng</button>
+          <button class="btn btn-sm btn-primary" onclick="submitIncidentNote()"><i aria-hidden="true" class="fas fa-plus"></i> Gửi ghi chú</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <div id="modal-provisioning" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="provisioning-title">
+    <div class="modal-dialog"><div class="modal-header"><h3 id="provisioning-title">Kết nối thiết bị mới</h3><button class="modal-close" onclick="closeModal('modal-provisioning')" aria-label="Đóng">&times;</button></div>
+      <div class="modal-body"><p>Khóa này chỉ hiển thị một lần. Sao chép và lưu vào cấu hình bộ mô phỏng hoặc thiết bị, cùng mã điểm đo bên dưới.</p><div class="form-group" style="margin-top:1rem"><label for="provisioning-device">Mã điểm đo</label><input id="provisioning-device" readonly></div><div class="form-group"><label for="provisioning-key">Khóa thiết bị</label><input id="provisioning-key" readonly autocomplete="off"></div></div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="copyProvisioningKey()">Sao chép khóa</button><button class="btn btn-outline" onclick="closeModal('modal-provisioning')">Đã lưu khóa</button></div>
+    </div>
+  </div>
+
+  <div id="modal-staff" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="staff-title">
+    <form id="staff-form" class="modal-dialog" onsubmit="submitStaff(event)"><div class="modal-header"><h3 id="staff-title">Thêm nhân sự</h3><button type="button" class="modal-close" onclick="closeModal('modal-staff')" aria-label="Đóng">&times;</button></div>
+      <div class="modal-body"><div class="form-group"><label for="staff-name">Họ tên</label><input id="staff-name" required maxlength="100"></div><div class="form-group"><label for="staff-email">Email</label><input id="staff-email" type="email" required maxlength="254" autocomplete="off"></div><div class="form-group"><label for="staff-password">Mật khẩu tạm (ít nhất 8 ký tự)</label><input id="staff-password" type="password" required minlength="8" autocomplete="new-password"></div></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline" onclick="closeModal('modal-staff')">Hủy</button><button type="submit" class="btn btn-primary">Tạo nhân sự</button></div>
+    </form>
+  </div>
+
+  <div id="modal-rotate-key" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="rotate-key-title">
+    <div class="modal-dialog"><div class="modal-header"><h3 id="rotate-key-title">Đổi khóa thiết bị</h3><button class="modal-close" onclick="closeModal('modal-rotate-key')" aria-label="Đóng">&times;</button></div>
+      <div class="modal-body"><input type="hidden" id="rotate-key-device-id"><p>Đổi khóa cho <strong id="rotate-key-device-name"></strong>? Khóa cũ ngừng hoạt động ngay. Sau khi đổi, lưu khóa mới và cập nhật cấu hình thiết bị hoặc bộ mô phỏng.</p></div>
+      <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('modal-rotate-key')">Hủy</button><button class="btn btn-primary" onclick="confirmRotateKey()">Đổi khóa</button></div>
+    </div>
+  </div>
+
+  <!-- Templates -->
+  <template id="device-card-template">
+    <div class="device-card">
+      <div class="card-header">
+        <h3 class="device-name"></h3>
+        <span class="device-badge"></span>
+      </div>
+      <div class="card-body">
+        <div class="level-display">
+          <span class="level-value">--</span>
+          <span class="level-unit">cm</span>
+        </div>
+        <div class="quality-indicator">
+          <i aria-hidden="true" class="fas fa-signal"></i> <span class="quality-text">Tốt</span>
+        </div>
+        <p class="last-updated">Cập nhật: <span class="time"></span></p>
+      </div>
+    </div>
+  </template>
+
+  <script src="/js/api.js?v=1.1.0"></script>
+  <script src="/js/app.js?v=1.1.0"></script>
+</body>
+</html>
