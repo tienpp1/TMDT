@@ -2,6 +2,8 @@
 
 Hai điều khiển được khôi phục từ bản sao mã nguồn trước đợt rà soát ngày 23/10/2026: thanh trượt riêng từng bãi và bộ chọn mưa trong chú thích bản đồ. Đây là dữ liệu mô phỏng phục vụ trình diễn hệ thống.
 
+Theo yêu cầu vận hành mới, chế độ mặc định giữ bãi đang bật luôn trực tuyến và chỉ báo động khi đạt ngưỡng đỏ. Tạnh/dừng mưa không làm bãi mất kết nối; tắt trong Quản trị mới ngừng hoạt động và không chịu tác động mưa. Xem [chế độ hoạt động](device-modes.md) để phân biệt với kiểm tra thiết bị telemetry.
+
 ## Cách dùng
 
 1. Đăng nhập quản lý, mở **Mô phỏng thiết bị**. Trang liệt kê các điểm đo ở tất cả cơ sở bạn có quyền quản lý. Chọn mức mục tiêu riêng cho từng bãi bằng thanh trượt hoặc ô nhập, rồi bấm **Cài Đặt Mức Nước**.
@@ -35,6 +37,6 @@ Với ngưỡng đặc biệt dưới5cm được đặt trong Quản trị, mô
 
 ## Tích hợp với hệ thống hiện tại
 
-Mỗi bước sinh reading qua cùng bộ xử lý nhận dữ liệu: lịch sử, số mẫu liên tiếp, cảnh báo và sự cố dùng cấu hình hiện hành. Không cập nhật cảnh báo trực tiếp từ màu vùng. Nước về0 nhưng chưa đủ mẫu kết thúc thì gửi tiếp các mẫu0 cần thiết. Điểm chưa có số đo ngoài vùng mưa vẫn hiển thị chưa có dữ liệu; chủ động tạo mưa tại điểm chưa có số đo dùng nền giả lập0cm để khởi tạo mô hình.
+Mỗi bước sinh reading qua cùng bộ xử lý nhận dữ liệu. Chế độ mô phỏng báo động đỏ ngay và kết thúc dưới đỏ; chế độ telemetry áp dụng số mẫu/ngưỡng kết thúc đã cấu hình, gửi tiếp các mẫu0 cần thiết. Không cập nhật cảnh báo trực tiếp từ màu vùng. Điểm chưa có số đo ngoài vùng mưa không sinh reading0; giao diện bãi ảo có thể hiển thị nền0cm có nhãn nguồn riêng. Chủ động tạo mưa tại điểm chưa có số đo dùng nền giả lập0cm để khởi tạo mô hình.
 
 Khác biệt có chủ đích so với mã cũ: giới hạn90cm thay vì thanh trượt100cm; vùng mưa ghi đúng bán kính thực3km thay vì lời hướng dẫn cũ ghi5km; không có worker toàn cục tự tạo số đo khi khởi động. Cập nhật mục tiêu cần quyền quản lý và đúng phiên bản. Telemetry nhận từ thiết bị giữ nguyên giá trị gửi lên.

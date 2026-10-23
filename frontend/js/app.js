@@ -1,5 +1,7 @@
 let currentUser = null;
 let currentSiteId = null;
+let currentDeviceMode = 'telemetry';
+let latestAlertsList = [];
 let pollInterval = null;
 let chartInstance = null;
 let leafletMap = null;
@@ -48,6 +50,52 @@ function formatTime(value) {
 }
 function readingLevel(reading) {
   return reading.quality === 'ok' && reading.level_cm !== null && reading.level_cm !== undefined && Number.isFinite(Number(reading.level_cm)) ? Number(reading.level_cm) : null;
+}
+function isSimulationDevice(device) {
+  return (device?.device_mode || currentDeviceMode) === 'simulation';
+}
+function displayedLevel(device) {
+  if (device.is_active === 0 || device.data_status === 'disabled') return null;
+  const value = Object.hasOwn(device, 'display_level_cm') ? device.display_level_cm :
+    (device.data_status === 'online' && device.latest_quality === 'ok' ? device.latest_level_cm : null);
+  return value !== null && value !== undefined && Number.isFinite(Number(value)) ? Number(value) : null;
+}
+function currentLevelStatus(device) {
+  if (device.is_active === 0 || device.data_status === 'disabled') return 'disabled';
+  if (device.current_level_status) return device.current_level_status;
+  return ['warning', 'critical'].includes(device.current_alert_level) ? device.current_alert_level : 'normal';
+}
+function measurementLabel(device) {
+  if (device.is_active === 0 || device.data_status === 'disabled') return getStatusLabel('disabled');
+  if (isSimulationDevice(device)) {
+    if (device.level_source === 'simulation_baseline') return 'Trực tuyến · Mô phỏng ban đầu';
+    if (device.measurement_status === 'sensor_error' || device.latest_quality === 'sensor_error') return 'Trực tuyến · Lỗi cảm biến';
+    return displayedLevel(device) === null ? 'Trực tuyến · Chưa có số đo' : 'Trực tuyến · Số đo mô phỏng';
+  }
+  return displayedLevel(device) === null ? getStatusLabel(device.data_status) : 'Tín hiệu tốt';
+}
+function updateDeviceMode(mode) {
+  currentDeviceMode = mode === 'simulation' ? 'simulation' : 'telemetry';
+  const simulation = currentDeviceMode === 'simulation';
+  const offlineLabel = document.getElementById('kpi-offline-label');
+  if (offlineLabel) offlineLabel.textContent = simulation ? 'Bãi đang tắt' : 'Mất kết nối/Lỗi';
+  const help = document.getElementById('demo-source-help');
+  if (help) help.textContent = simulation ?
+    'DỮ LIỆU MÔ PHỎNG cho cơ sở đang chọn. Mỗi lần gửi tạo một số đo. Báo ngay khi đạt ngưỡng đỏ; dừng gửi vẫn giữ bãi được bật trực tuyến. Chỉ tắt bãi trong Quản trị để chuyển ngoại tuyến.' :
+    'Gửi số đo kiểm thử cho cơ sở đang chọn. Dừng nguồn dữ liệu để kiểm tra mất kết nối sau 30 giây. Khi kiểm tra, hãy dừng bộ mô phỏng CLI cho các điểm này.';
+}
+function stoppedSourceMessage(prefix) {
+  return currentDeviceMode === 'simulation' ? `${prefix} Bãi đang bật vẫn trực tuyến; chỉ chuyển ngoại tuyến khi tắt trong Quản trị.` : `${prefix} Điểm đo sẽ mất kết nối sau 30 giây nếu không có nguồn dữ liệu khác.`;
+}
+function currentRedAlerts(alerts, devices) {
+  const eligible = new Set(devices.filter(device => device.is_active !== 0 && device.data_status === 'online' && displayedLevel(device) !== null && currentLevelStatus(device) === 'critical').map(device => device.id));
+  const byDevice = new Map();
+  alerts.forEach(alert => {
+    if (!alert.is_current || alert.resolved_at || alert.level !== 'critical' || !eligible.has(alert.device_id)) return;
+    const previous = byDevice.get(alert.device_id);
+    if (!previous || (previous.ack_at && !alert.ack_at)) byDevice.set(alert.device_id, alert);
+  });
+  return [...byDevice.values()];
 }
 function setConnectionState(ok, message) {
   const status = document.getElementById('connection-status');
@@ -128,6 +176,9 @@ function showLogin() {
   sessionGeneration++;
   currentUser = null;
   currentSiteId = null;
+  latestAlertsList = [];
+  currentDeviceMode = 'telemetry';
+  document.getElementById('alerts-filter').value = 'current';
   latestDevicesList = [];
   historyStatsCache = [];
   adminDevicesCache = [];
@@ -308,6 +359,7 @@ async function pollData() {
     if (generation !== sessionGeneration || siteId !== currentSiteId || !currentUser) return;
     
     latestDevicesList = overview.devices || [];
+    updateDeviceMode(overview.device_mode);
     window.devicesCache = latestDevicesList;
 
     renderDashboard(overview.devices, alerts, incidents);
@@ -565,7 +617,7 @@ function stopRainSimulation(showStatus = true) {
   document.getElementById('leaflet-map')?.classList.remove('map-rain-mode');
   [5, 15, 30].forEach(value => document.getElementById(`btn-rain-${value}`)?.classList.remove('active'));
   document.getElementById('btn-rain-stop')?.classList.add('active');
-  if (showStatus) setRainStatus('Đã dừng mô phỏng. Không gửi thêm số đo; có thể kiểm tra mất kết nối sau 30 giây.');
+  if (showStatus) setRainStatus(stoppedSourceMessage('Đã dừng mô phỏng. Không gửi thêm số đo.'));
 }
 window.triggerRainAt = async function(lat, lng) {
   if (!isSiteManager() || !currentSiteId || rainModeIntensity === null || manualWrites.size) return;
@@ -659,21 +711,22 @@ function stopDemo(showStatus = true) {
   demoTimer = null;
   const button = document.getElementById('demo-start');
   if (button) button.disabled = false;
-  if (showStatus) document.getElementById('demo-status').textContent = 'Đã dừng gửi. Điểm đo sẽ mất kết nối sau 30 giây nếu không có nguồn dữ liệu khác.';
+  if (showStatus) document.getElementById('demo-status').textContent = stoppedSourceMessage('Đã dừng gửi.');
 }
 
 
 
 function renderDashboard(devices = [], alerts = [], incidents = []) {
   window.devicesCache = devices;
-  const activeAlerts = alerts.filter(alert => !alert.resolved_at);
+  updateDeviceMode(devices.find(device => device.device_mode)?.device_mode || currentDeviceMode);
+  const activeAlerts = currentRedAlerts(alerts, devices);
   const unackedAlerts = activeAlerts.filter(alert => !alert.ack_at);
   elements.kpiTotalDevices.textContent = devices.filter(device => device.is_active !== 0).length;
   elements.kpiActiveAlerts.textContent = activeAlerts.length;
   elements.kpiActiveIncidents.textContent = incidents.filter(incident => incident.status !== 'completed').length;
-  elements.kpiOfflineDevices.textContent = devices.filter(device => ['offline', 'no_data', 'stale', 'sensor_error'].includes(device.data_status)).length;
+  elements.kpiOfflineDevices.textContent = devices.filter(device => isSimulationDevice(device) ? device.is_active === 0 || device.data_status === 'disabled' : ['disabled', 'offline', 'no_data', 'stale', 'sensor_error'].includes(device.data_status)).length;
   elements.priorityBanner.classList.toggle('hidden', !unackedAlerts.length);
-  elements.priorityBanner.textContent = 'Cảnh báo ưu tiên: Có ' + unackedAlerts.length + ' cảnh báo chưa xác nhận.';
+  elements.priorityBanner.textContent = unackedAlerts.length ? 'Cảnh báo ưu tiên: Có ' + unackedAlerts.length + ' bãi vượt ngưỡng đỏ chưa xác nhận.' : '';
   elements.notificationBadge.style.display = unackedAlerts.length ? 'block' : 'none';
   elements.notificationBadge.textContent = unackedAlerts.length;
 
@@ -692,15 +745,17 @@ function renderDashboard(devices = [], alerts = [], incidents = []) {
     const clone = template.content.cloneNode(true);
     const card = clone.querySelector('.device-card');
     clone.querySelector('.device-name').textContent = device.point_label || device.name;
-    const hasFreshLevel = device.data_status === 'online' && device.latest_quality === 'ok' && device.latest_level_cm !== null && device.latest_level_cm !== undefined;
-    const alertLevel = ['warning', 'critical'].includes(device.current_alert_level) ? device.current_alert_level : 'normal';
+    const level = displayedLevel(device);
+    const hasFreshLevel = level !== null;
+    const alertLevel = currentLevelStatus(device);
     const statusClass = device.data_status !== 'online' ? 'status-offline' : 'status-' + alertLevel;
     card.classList.add(statusClass);
-    const alertLabel = alertLevel === 'critical' ? 'NGUY HIỂM' : (alertLevel === 'warning' ? 'CẢNH BÁO' : 'Chưa vượt ngưỡng');
-    clone.querySelector('.device-badge').textContent = device.data_status === 'online' ? alertLabel : getStatusLabel(device.data_status) + (alertLevel !== 'normal' ? ' · ' + alertLabel : '');
-    clone.querySelector('.level-value').textContent = hasFreshLevel ? device.latest_level_cm : '--';
+    const unknownLabel = device.latest_quality === 'sensor_error' || device.measurement_status === 'sensor_error' ? 'Lỗi cảm biến' : 'Chưa có số đo';
+    const alertLabel = alertLevel === 'critical' ? 'NGUY HIỂM' : alertLevel === 'warning' ? 'CẢNH BÁO' : alertLevel === 'unknown' ? unknownLabel : 'Chưa vượt ngưỡng';
+    clone.querySelector('.device-badge').textContent = device.data_status === 'online' ? (isSimulationDevice(device) ? 'Trực tuyến · ' : '') + alertLabel : getStatusLabel(device.data_status) + (['warning', 'critical'].includes(alertLevel) ? ' · ' + alertLabel : '');
+    clone.querySelector('.level-value').textContent = hasFreshLevel ? level : '--';
     clone.querySelector('.quality-indicator').classList.add(hasFreshLevel ? 'ok' : 'error');
-    clone.querySelector('.quality-text').textContent = hasFreshLevel ? 'Tín hiệu tốt' : getStatusLabel(device.data_status);
+    clone.querySelector('.quality-text').textContent = measurementLabel(device);
     clone.querySelector('.time').textContent = formatTime(device.latest_measured_at);
     clone.querySelector('.time').title = 'Máy chủ nhận: ' + formatTime(device.latest_received_at);
     const details = document.createElement('button');
@@ -716,7 +771,7 @@ function renderDashboard(devices = [], alerts = [], incidents = []) {
     card.appendChild(details);
     elements.dashboardDevicesGrid.appendChild(clone);
     labels.push(device.point_label || device.name);
-    levels.push(hasFreshLevel ? Number(device.latest_level_cm) : null);
+    levels.push(level);
 
     if (leafletMap && device.lat !== null && device.lng !== null && Number.isFinite(Number(device.lat)) && Number.isFinite(Number(device.lng))) {
       const color = !hasFreshLevel ? '#6b7280' : (alertLevel === 'critical' ? '#ef4444' : (alertLevel === 'warning' ? '#f59e0b' : '#10b981'));
@@ -729,7 +784,7 @@ function renderDashboard(devices = [], alerts = [], incidents = []) {
           if (rainModeIntensity !== null) window.triggerRainAt(event.latlng.lat, event.latlng.lng);
         });
       }
-      mapMarkers[device.id].bindPopup(html`<strong>${device.name}</strong><br>Mực nước: ${hasFreshLevel ? device.latest_level_cm : '--'} cm<br>${getStatusLabel(device.data_status)} · ${alertLabel}<br>Đo lúc: ${formatTime(device.latest_measured_at)}`);
+      mapMarkers[device.id].bindPopup(html`<strong>${device.name}</strong><br>Mực nước: ${hasFreshLevel ? level : '--'} cm<br>${measurementLabel(device)} · ${alertLabel}<br>Đo lúc: ${formatTime(device.latest_measured_at)}`);
     }
   });
   if (leafletMap && Object.keys(mapMarkers).length && !mapZoomed) {
@@ -740,16 +795,19 @@ function renderDashboard(devices = [], alerts = [], incidents = []) {
 }
 
 function renderAlerts(alerts) {
+  latestAlertsList = alerts;
   elements.alertsTbody.innerHTML = '';
-  if (alerts.length === 0) {
-    elements.alertsTbody.innerHTML = '<tr><td colspan="6" style="text-align:center">Không có dữ liệu</td></tr>';
+  const history = document.getElementById('alerts-filter').value === 'history';
+  const selectedAlerts = alerts.filter(alert => history ? !alert.is_current : alert.is_current && !alert.resolved_at && alert.level === 'critical');
+  if (selectedAlerts.length === 0) {
+    elements.alertsTbody.innerHTML = history ? '<tr><td colspan="6" style="text-align:center">Chưa có lịch sử cảnh báo.</td></tr>' : '<tr><td colspan="6" style="text-align:center">Không có bãi xe vượt ngưỡng đỏ.</td></tr>';
     return;
   }
   
-  alerts.forEach(alert => {
+  selectedAlerts.forEach(alert => {
     const isAcked = !!alert.ack_at;
     const isResolved = !!alert.resolved_at;
-    let statusText = (isResolved ? 'Đã kết thúc' : 'Đang diễn ra') + ' · ' + (isAcked ? 'Đã xác nhận' : 'Chưa xác nhận');
+    const statusText = (history ? 'Lịch sử · ' + (isResolved ? 'Đã kết thúc' : 'Không còn cảnh báo hiện tại') : 'Đang vượt ngưỡng đỏ') + ' · ' + (isAcked ? 'Đã xác nhận' : 'Chưa xác nhận');
     
     const tr = document.createElement('tr');
     tr.innerHTML = html`
@@ -759,12 +817,13 @@ function renderAlerts(alerts) {
       <td><span class="badge-status" style="color: ${isResolved ? 'var(--success)' : (isAcked ? 'var(--warning)' : 'var(--danger)')}">${statusText}</span></td>
       <td>${alert.ack_at ? (alert.ack_by_name || alert.ack_name || alert.ack_by || 'Đã xác nhận') + ' · ' + formatTime(alert.ack_at) : '--'}</td>
       <td>
-        ${trusted(!isAcked && !isResolved ? html`<button class="btn btn-sm btn-outline" data-action="ack-alert" data-id="${alert.id}">Xác nhận</button>` : '')}
+        ${trusted(!history && !isAcked && !isResolved ? html`<button class="btn btn-sm btn-outline" data-action="ack-alert" data-id="${alert.id}">Xác nhận</button>` : '')}
       </td>
     `;
     elements.alertsTbody.appendChild(tr);
   });
 }
+document.getElementById('alerts-filter')?.addEventListener('change', () => renderAlerts(latestAlertsList));
 
 // Toast Notification System
 function showToast(message, type = 'success') {
@@ -1326,7 +1385,7 @@ window.filterHistoryDisplay = function() {
   const goodLevels = readings.map(readingLevel).filter(level => level !== null);
   const latest = devices.map(device => {
     const live = latestDevicesList.find(item => item.id === device.id);
-    if (live) return live.data_status === 'online' && live.latest_quality === 'ok' ? live.latest_level_cm : null;
+    if (live) return displayedLevel(live);
     return device.current_level;
   }).filter(level => level !== null && level !== undefined && Number.isFinite(Number(level))).map(Number);
   document.getElementById('history-chart-device-name').textContent = selectedId === 'all' ? 'Tất cả điểm đo' : (devices[0]?.name || 'Điểm đo');
@@ -1418,7 +1477,7 @@ function getStatusLabel(status) {
     case 'sensor_error': return 'Lỗi cảm biến';
     case 'stale': return 'Dữ liệu cũ';
     case 'no_data': return 'Chưa có dữ liệu';
-    case 'disabled': return 'Vô hiệu hóa';
+    case 'disabled': return 'Mất kết nối · Đã tắt trong Quản trị';
     default: return 'Không xác định';
   }
 }
@@ -1699,14 +1758,16 @@ function renderWaterLevelsPage() {
     }).join('') || '<p class="text-muted">Chưa có điểm đo tại các cơ sở bạn quản lý.</p>';
   }
   manualDevicesCache.forEach(device => {
-    const fresh = device.data_status === 'online' && device.latest_quality === 'ok' && device.latest_level_cm !== null && device.latest_level_cm !== undefined;
+    const level = displayedLevel(device);
+    const fresh = level !== null;
+    const statusLevel = currentLevelStatus(device);
     const measured = document.getElementById(`measured-level-${device.id}`);
-    measured.textContent = fresh ? `${device.latest_level_cm} cm` : '-- cm';
-    measured.style.color = !fresh ? 'var(--text-muted)' : device.current_alert_level === 'critical' ? 'var(--critical)' : device.current_alert_level === 'warning' ? 'var(--warning)' : 'var(--normal)';
-    document.getElementById(`measured-status-${device.id}`).textContent = getStatusLabel(device.data_status);
+    measured.textContent = fresh ? `${level} cm` : '-- cm';
+    measured.style.color = !fresh ? 'var(--text-muted)' : statusLevel === 'critical' ? 'var(--critical)' : statusLevel === 'warning' ? 'var(--warning)' : 'var(--normal)';
+    document.getElementById(`measured-status-${device.id}`).textContent = measurementLabel(device);
     const status = document.getElementById(`status-${device.id}`);
     status.textContent = device.demo_override_level != null ? `Đã lưu mục tiêu: ${device.demo_override_level} cm. Chờ số đo tiếp theo.` : `Đang dùng ngưỡng cấu hình (${device.critical_cm ?? 20} cm).`;
-    document.getElementById(`rule-status-${device.id}`).textContent = `Vàng ≥ ${device.warning_cm ?? 10} cm · Đỏ ≥ ${device.critical_cm ?? 20} cm · Kết thúc < ${device.clear_cm ?? 7} cm · ${device.sample_count ?? 3} mẫu liên tiếp`;
+    document.getElementById(`rule-status-${device.id}`).textContent = `Vàng ≥ ${device.warning_cm ?? 10} cm · Đỏ ≥ ${device.critical_cm ?? 20} cm · ` + (isSimulationDevice(device) ? 'Báo ngay khi đạt ngưỡng đỏ' : `Kết thúc < ${device.clear_cm ?? 7} cm · ${device.sample_count ?? 3} mẫu liên tiếp`);
     ['slider-', 'target-input-', 'save-water-', 'reset-water-'].forEach(prefix => {
       document.getElementById(prefix + device.id).disabled = device.is_active === 0 || manualWrites.has(device.id);
     });

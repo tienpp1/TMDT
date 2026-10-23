@@ -5,6 +5,7 @@ const db = require('../db');
 const { requireAuth, requireSiteMember, requireSiteManager } = require('../middleware/auth');
 const { ingestReading } = require('./telemetry');
 const { rainStep } = require('../lib/rain-simulation');
+const { isSimulationMode } = require('../lib/device-mode');
 const router = express.Router();
 const DEVICE_FIELDS = 'd.id,d.site_id,d.name,d.point_label,d.is_active,d.last_seen,d.last_fresh_received_at,d.latest_measured_at,d.latest_quality,d.latest_level_cm,d.current_alert_level,d.demo_override_level,d.created_at,d.lat,d.lng,d.zone_radius_km,d.risk_level';
 const RULE_FIELDS = 'r.warning_cm,r.critical_cm,r.clear_cm,r.sample_count,r.version AS rule_version';
@@ -26,6 +27,22 @@ async function transaction(action) {
   try { await client.query('BEGIN IMMEDIATE'); const result = await action(client); await client.query('COMMIT'); return result; }
   catch (error) { try { await client.query('ROLLBACK'); } catch (_) { /* Preserve original error. */ } throw error; }
   finally { client.release(); }
+}
+async function closeDisabledDevice(client, id) {
+  await client.query('UPDATE alerts SET resolved_at=$1 WHERE device_id=$2 AND resolved_at IS NULL', [new Date().toISOString(), id]);
+  await client.query("UPDATE devices SET warning_count=0,critical_count=0,clear_count=0,current_alert_level='normal',active_episode_id=NULL WHERE id=$1", [id]);
+}
+function clearSimulationState(site, id) {
+  rainPeaks.get(site)?.delete(id);
+  rainLevels.get(site)?.delete(id);
+}
+async function reconcileSimulationRule(client, id, rule) {
+  if (!isSimulationMode()) return;
+  const device = (await client.query('SELECT is_active,latest_quality,latest_level_cm,active_episode_id FROM devices WHERE id=$1', [id])).rows[0];
+  if (!device?.is_active || device.latest_quality !== 'ok' || device.latest_level_cm === null || !Number.isFinite(Number(device.latest_level_cm)) || device.latest_level_cm >= rule.critical_cm) return;
+  if (device.active_episode_id) await client.query('UPDATE alerts SET resolved_at=$1 WHERE episode_id=$2 AND resolved_at IS NULL', [new Date().toISOString(), device.active_episode_id]);
+  const level = device.latest_level_cm >= rule.warning_cm ? 'warning' : 'normal';
+  await client.query('UPDATE devices SET current_alert_level=$1,active_episode_id=NULL WHERE id=$2', [level, id]);
 }
 function validateRules(rule) {
   for (const key of ['warning_cm', 'critical_cm', 'clear_cm']) if (typeof rule[key] !== 'number' || !Number.isFinite(rule[key]) || rule[key] < 0 || rule[key] > 90) bad('Ngưỡng phải là số trong khoảng 0–90 cm');
@@ -79,11 +96,16 @@ router.post('/site/:siteId', requireAuth, requireSiteManager, async (req, res, n
 router.put('/:id', requireAuth, checkDeviceMembership, requireSiteManager, async (req, res, next) => {
   try {
     if (['warning_cm', 'critical_cm', 'clear_cm', 'sample_count', 'expected_version'].some(key => req.body[key] !== undefined)) bad('Dùng API PATCH rule với expected_version để thay đổi ngưỡng');
-    const info = await transaction(async client => {
-      const current = (await client.query(`SELECT ${DEVICE_FIELDS} FROM devices d WHERE d.id=$1`, [req.params.id])).rows[0];
-      const updated = metadata(req.body, current);
-      await client.query('UPDATE devices SET name=$1,point_label=$2,lat=$3,lng=$4,zone_radius_km=$5,risk_level=$6,is_active=$7 WHERE id=$8', [updated.name, updated.point_label, updated.lat, updated.lng, updated.zone_radius_km, updated.risk_level, updated.is_active, req.params.id]);
-      await client.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,old_values,new_values) VALUES ($1,$2,'UPDATE_DEVICE','devices',$3,$4,$5)", [req.params.siteId, req.session.userId, req.params.id, JSON.stringify(current), JSON.stringify(updated)]);
+    const info = await simulationQueue(req.params.siteId, async () => {
+      const updated = await transaction(async client => {
+        const current = (await client.query(`SELECT ${DEVICE_FIELDS} FROM devices d WHERE d.id=$1`, [req.params.id])).rows[0];
+        const updated = metadata(req.body, current);
+        await client.query('UPDATE devices SET name=$1,point_label=$2,lat=$3,lng=$4,zone_radius_km=$5,risk_level=$6,is_active=$7 WHERE id=$8', [updated.name, updated.point_label, updated.lat, updated.lng, updated.zone_radius_km, updated.risk_level, updated.is_active, req.params.id]);
+        if (!updated.is_active) { await closeDisabledDevice(client, req.params.id); updated.current_alert_level = 'normal'; }
+        await client.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,old_values,new_values) VALUES ($1,$2,'UPDATE_DEVICE','devices',$3,$4,$5)", [req.params.siteId, req.session.userId, req.params.id, JSON.stringify(current), JSON.stringify(updated)]);
+        return updated;
+      });
+      if (!updated.is_active) clearSimulationState(req.params.siteId, req.params.id);
       return updated;
     });
     publish(req); res.json({ data: { ...info, success: true } });
@@ -91,11 +113,15 @@ router.put('/:id', requireAuth, checkDeviceMembership, requireSiteManager, async
 });
 router.delete('/:id', requireAuth, checkDeviceMembership, requireSiteManager, async (req, res, next) => {
   try {
-    await transaction(async client => {
-      const current = (await client.query(`SELECT ${DEVICE_FIELDS} FROM devices d WHERE d.id=$1`, [req.params.id])).rows[0];
-      // Disabling preserves readings, alert episodes and the audit trail for reports.
-      await client.query('UPDATE devices SET is_active=0 WHERE id=$1', [req.params.id]);
-      await client.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,old_values,new_values) VALUES ($1,$2,'DISABLE_DEVICE','devices',$3,$4,$5)", [req.params.siteId, req.session.userId, req.params.id, JSON.stringify(current), JSON.stringify({ is_active: 0 })]);
+    await simulationQueue(req.params.siteId, async () => {
+      await transaction(async client => {
+        const current = (await client.query(`SELECT ${DEVICE_FIELDS} FROM devices d WHERE d.id=$1`, [req.params.id])).rows[0];
+        // Disabling preserves measurements and closes notification eligibility.
+        await client.query('UPDATE devices SET is_active=0 WHERE id=$1', [req.params.id]);
+        await closeDisabledDevice(client, req.params.id);
+        await client.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,old_values,new_values) VALUES ($1,$2,'DISABLE_DEVICE','devices',$3,$4,$5)", [req.params.siteId, req.session.userId, req.params.id, JSON.stringify(current), JSON.stringify({ is_active: 0 })]);
+      });
+      clearSimulationState(req.params.siteId, req.params.id);
     });
     publish(req); res.json({ data: { success: true, is_active: 0 } });
   } catch (error) { next(error); }
@@ -113,6 +139,7 @@ router.patch('/:id/rule', requireAuth, checkDeviceMembership, requireSiteManager
         const updated = { warning_cm, critical_cm, clear_cm, sample_count, version: current.version + 1 };
         await client.query('UPDATE alert_rules SET warning_cm=$1,critical_cm=$2,clear_cm=$3,sample_count=$4,version=$5,updated_by=$6,updated_at=$7 WHERE device_id=$8', [warning_cm, critical_cm, clear_cm, sample_count, updated.version, req.session.userId, new Date().toISOString(), req.params.id]);
         await client.query('UPDATE devices SET warning_count=0,critical_count=0,clear_count=0 WHERE id=$1', [req.params.id]);
+        await reconcileSimulationRule(client, req.params.id, updated);
         await client.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,old_values,new_values) VALUES ($1,$2,'UPDATE_RULE','alert_rules',$3,$4,$5)", [req.params.siteId, req.session.userId, req.params.id, JSON.stringify(current), JSON.stringify(updated)]);
         return updated;
       });
@@ -140,6 +167,7 @@ router.post('/:id/override', requireAuth, checkDeviceMembership, requireSiteMana
         const updated = { id: req.params.id, override_level, ...rule, rule_version: current.version + 1 };
         await client.query('UPDATE devices SET demo_override_level=$1,warning_count=0,critical_count=0,clear_count=0 WHERE id=$2', [override_level, req.params.id]);
         await client.query('UPDATE alert_rules SET warning_cm=$1,critical_cm=$2,clear_cm=$3,sample_count=$4,version=$5,updated_by=$6,updated_at=$7 WHERE device_id=$8', [rule.warning_cm, rule.critical_cm, rule.clear_cm, rule.sample_count, updated.rule_version, req.session.userId, new Date().toISOString(), req.params.id]);
+        await reconcileSimulationRule(client, req.params.id, rule);
         await client.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,old_values,new_values) VALUES ($1,$2,'SET_DEMO_TARGET','devices',$3,$4,$5)", [req.params.siteId, req.session.userId, req.params.id, JSON.stringify({ override_level: device.demo_override_level, ...current }), JSON.stringify(updated)]);
         return updated;
       });

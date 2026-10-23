@@ -109,7 +109,7 @@
               <div class="kpi-icon text-danger"><i aria-hidden="true" class="fas fa-exclamation-circle"></i></div>
               <div class="kpi-data">
                 <span class="kpi-value" id="kpi-active-alerts">0</span>
-                <span class="kpi-label">Cảnh báo đang mở</span>
+                <span class="kpi-label">Bãi vượt ngưỡng đỏ</span>
               </div>
             </div>
             <div class="kpi-card">
@@ -123,7 +123,7 @@
               <div class="kpi-icon text-muted"><i aria-hidden="true" class="fas fa-unlink"></i></div>
               <div class="kpi-data">
                 <span class="kpi-value" id="kpi-offline-devices">0</span>
-                <span class="kpi-label">Mất kết nối/Lỗi</span>
+                <span class="kpi-label" id="kpi-offline-label">Bãi đang tắt</span>
               </div>
             </div>
           </div>
@@ -282,6 +282,7 @@
         <div id="page-alerts" class="page hidden">
           <div class="page-header">
             <h2>Trung tâm Cảnh báo</h2>
+            <label class="alerts-filter-label" for="alerts-filter">Hiển thị <select id="alerts-filter"><option value="current">Bãi đang vượt ngưỡng đỏ</option><option value="history">Lịch sử cảnh báo</option></select></label>
           </div>
           <div class="alerts-table-container">
             <table class="data-table">
@@ -445,7 +446,7 @@
           <div class="devices-grid water-levels-grid" id="water-levels-devices-grid"></div>
           <details id="demo-advanced" class="settings-content manager-only demo-advanced">
             <summary>Kiểm thử nâng cao: gửi số đo theo kịch bản</summary>
-            <p class="text-muted simulation-description">DỮ LIỆU MÔ PHỎNG cho cơ sở đang chọn. Mỗi lần gửi tạo một số đo qua cùng luồng kiểm tra dữ liệu thiết bị. Dừng gửi để kiểm tra mất kết nối sau 30 giây. Khi kiểm tra, hãy dừng bộ mô phỏng CLI cho các điểm này.</p>
+            <p id="demo-source-help" class="text-muted simulation-description">DỮ LIỆU MÔ PHỎNG cho cơ sở đang chọn. Mỗi lần gửi tạo một số đo. Báo ngay khi đạt ngưỡng đỏ; dừng gửi vẫn giữ bãi được bật trực tuyến. Chỉ tắt bãi trong Quản trị để chuyển ngoại tuyến.</p>
             <div class="form-group"><label for="demo-device">Điểm đo</label><select id="demo-device"><option value="all">Tất cả điểm đo</option></select></div>
             <div class="form-group"><label for="demo-scenario">Kịch bản</label><select id="demo-scenario"><option value="normal">Bình thường / nước rút</option><option value="warning">Chạm ngưỡng cảnh báo Vàng</option><option value="critical">Chạm ngưỡng nguy hiểm Đỏ</option><option value="sensor-error">Lỗi cảm biến</option><option value="stale">Dữ liệu cũ (chỉ lịch sử)</option><option value="custom">Mực nước tự chọn</option></select></div>
             <div class="form-group"><label for="demo-level">Mực nước tự chọn (cm, chỉ dùng cho kịch bản tự chọn)</label><input type="number" id="demo-level" min="0" max="90" step="0.1" value="5"></div>

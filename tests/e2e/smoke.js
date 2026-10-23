@@ -8,12 +8,16 @@ const { spawn, execFileSync } = require('child_process');
 const { chromium } = require('playwright');
 
 const root = path.resolve(__dirname, '../..');
+const deviceMode = process.env.E2E_DEVICE_MODE || 'simulation';
+assert(['simulation', 'telemetry'].includes(deviceMode), 'E2E_DEVICE_MODE must be simulation or telemetry');
+const virtualMode = deviceMode === 'simulation';
 // Routine tests use fixture map images and keep the original coursework evidence intact.
 const artifactDir = path.resolve(process.env.E2E_ARTIFACT_DIR || path.join(root, 'artifacts/e2e'));
 const evidenceDir = path.join(artifactDir, 'screenshots');
 const reportFile = path.join(artifactDir, 'browser-results.json');
 const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmdt-e2e-'));
 const results = { started_at: new Date().toISOString(), browser: 'Chrome headless', isolated_database: true, checks: [], screenshots: [], javascript_errors: [], api_errors: [], map_tiles: { source: 'intercepted PNG fixtures', live_provider_verified: false } };
+results.device_mode = deviceMode;
 const tilePNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 const tileReferrers = [];
 const secondarySiteId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -62,7 +66,7 @@ async function main() {
   const port = await availablePort();
   baseUrl = 'http://localhost:' + port;
   results.port = port;
-  const environment = { ...process.env, NODE_ENV: 'test', SQLITE_PATH: path.join(temporaryDir, 'browser.sqlite'), APP_BASE_URL: baseUrl, PORT: String(port), SESSION_SECRET: 'isolated-e2e-session-only', COOKIE_SECURE: 'false', DEMO_MANAGER_PASSWORD: 'manager123', DEMO_STAFF_PASSWORD: 'staff123' };
+  const environment = { ...process.env, NODE_ENV: 'test', DEVICE_MODE: deviceMode, DEVICE_OFFLINE_AFTER_MS: virtualMode ? '100' : '30000', SQLITE_PATH: path.join(temporaryDir, 'browser.sqlite'), APP_BASE_URL: baseUrl, PORT: String(port), SESSION_SECRET: 'isolated-e2e-session-only', COOKIE_SECURE: 'false', DEMO_MANAGER_PASSWORD: 'manager123', DEMO_STAFF_PASSWORD: 'staff123' };
   const seedScript = `
     (async()=>{
       const db=require('./backend/src/db');
@@ -114,8 +118,9 @@ async function main() {
   await check('manager dashboard starts with three points and no fabricated readings', async () => {
     await login(page, 'manager@example.com', 'manager123');
     assert.equal(await page.locator('#dashboard-devices-grid .device-card').count(), 3);
-    assert.equal(await page.locator('#dashboard-devices-grid .level-value').allTextContents().then(levels => levels.every(value => value === '--')), true);
-    assert.equal(await page.locator('#dashboard-devices-grid .device-badge').allTextContents().then(badges => badges.every(value => value.includes('Chưa có dữ liệu'))), true);
+    const initialLevels = await page.locator('#dashboard-devices-grid .level-value').allTextContents();
+    assert(initialLevels.every(value => virtualMode ? Number(value) === 0 : value === '--'));
+    if (!virtualMode) assert.equal(await page.locator('#dashboard-devices-grid .device-badge').allTextContents().then(badges => badges.every(value => value.includes('Chưa có dữ liệu'))), true);
     assert(await page.locator('[data-page=settings]').isVisible());
     assert(await page.locator('[data-page=water-levels]').isVisible());
   });
@@ -148,9 +153,46 @@ async function main() {
     assert.equal(response.status(), 201, await response.text());
   };
   const samples = async scenario => { for (let index = 0; index < 3; index++) await sample(scenario); };
-  await check('normal then warning transitions only after the third sample', async () => {
+  if (virtualMode) await check('enabled virtual bays stay online while idle without inventing readings or timestamps', async () => {
+    const first = await overview();
+    assert.equal(first.device_mode, 'simulation');
+    assert(first.devices.every(device => device.data_status === 'online' && device.latest_level_cm === null && device.last_seen === null && device.display_level_cm === 0 && device.level_source === 'simulation_baseline'));
+    const before = await (await context.request.get(baseUrl + '/api/devices/' + demoDeviceIds[0] + '/readings')).json();
+    await pause(250); // Exceeds this isolated server's100ms physical timeout.
+    const later = await overview();
+    assert(later.devices.every(device => device.data_status === 'online' && device.last_seen === null));
+    const after = await (await context.request.get(baseUrl + '/api/devices/' + demoDeviceIds[0] + '/readings')).json();
+    assert.deepEqual(after.data, before.data);
+    assert.equal(await page.locator('#kpi-offline-devices').textContent(), '0');
+    assert.equal(await page.locator('#kpi-active-alerts').textContent(), '0');
+    assert.equal(await page.locator('#notification-badge').isVisible(), false);
+    await screenshot(page, 'virtual-idle-no-alerts.png');
+  });
+  await check(virtualMode ? 'yellow raises no alarm; only current red notifies and leaving red clears it' : 'normal then warning transitions only after the third sample', async () => {
     await samples('normal');
     assert((await overview()).devices.every(device => device.current_alert_level === 'normal'));
+    if (virtualMode) {
+      await sample('warning');
+      await page.evaluate(() => pollData());
+      const yellow = (await overview()).devices;
+      assert(yellow.every(device => device.current_level_status === 'warning'));
+      const yellowAlerts = (await (await context.request.get(baseUrl + '/api/alerts/site/' + siteId)).json()).data;
+      assert.equal(yellowAlerts.length, 0);
+      await page.waitForFunction(() => document.querySelector('#kpi-active-alerts').textContent === '0');
+      assert.equal(await page.locator('#notification-badge').isVisible(), false);
+      await sample('critical');
+      await page.evaluate(() => pollData());
+      await page.waitForFunction(() => document.querySelector('#kpi-active-alerts').textContent === '3');
+      const redAlerts = (await (await context.request.get(baseUrl + '/api/alerts/site/' + siteId)).json()).data;
+      assert.equal(redAlerts.filter(alert => alert.is_current).length, 3);
+      assert(redAlerts.every(alert => alert.level === 'critical'));
+      await sample('warning');
+      await page.evaluate(() => pollData());
+      await page.waitForFunction(() => document.querySelector('#kpi-active-alerts').textContent === '0');
+      assert.equal(await page.locator('#notification-badge').isVisible(), false);
+      assert((await (await context.request.get(baseUrl + '/api/alerts/site/' + siteId)).json()).data.every(alert => !alert.is_current && alert.resolved_at));
+      return;
+    }
     await sample('warning');
     await sample('warning');
     assert((await overview()).devices.every(device => device.current_alert_level === 'normal'));
@@ -160,8 +202,8 @@ async function main() {
   await check('critical dashboard renders real chart and current sensor quality', async () => {
     await samples('critical');
     await page.evaluate(() => pollData());
-    await page.waitForFunction(() => [...document.querySelectorAll('#dashboard-devices-grid .device-badge')].every(element => element.textContent === 'NGUY HIỂM'));
-    assert.equal(await page.locator('#dashboard-devices-grid .quality-text').allTextContents().then(values => values.every(value => value === 'Tín hiệu tốt')), true);
+    await page.waitForFunction(() => [...document.querySelectorAll('#dashboard-devices-grid .device-badge')].every(element => element.textContent.includes('NGUY HIỂM')));
+    assert.equal(await page.locator('#dashboard-devices-grid .quality-text').allTextContents().then(values => values.every(value => value === (virtualMode ? 'Trực tuyến · Số đo mô phỏng' : 'Tín hiệu tốt'))), true);
     await page.waitForFunction(() => typeof Chart !== 'undefined' && !!Chart.getChart('dashboard-chart'));
     assert(await page.evaluate(() => Chart.getChart('dashboard-chart').data.datasets[0].data.every(value => value === 20)));
     await screenshot(page, 'desktop-critical-dashboard.png');
@@ -261,13 +303,17 @@ async function main() {
     const primary = demoDeviceIds[0];
     const previous = (await overview()).devices.find(device => device.id === primary).latest_level_cm;
     const setTarget = async (id, target) => {
-      await page.locator('#slider-' + id).evaluate((element, value) => {
-        element.value = String(value);
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-      }, target);
+      // A real input action retries if a pending managed-site refresh replaces a card.
+      await page.locator('#target-input-' + id).fill(String(target));
+      const selected = await page.evaluate(id => ({ draft: waterTargetDrafts[id], slider: document.getElementById('slider-' + id).value }), id);
+      assert.equal(selected.draft, target, 'the input must update the draft before saving');
+      assert.equal(selected.slider, String(target), 'the range and number controls must stay in sync');
       const response = page.waitForResponse(r => r.url().endsWith('/devices/' + id + '/override') && r.request().method() === 'POST');
       await page.locator('#water-card-' + id).getByRole('button', { name: 'Cài Đặt Mức Nước', exact: false }).click();
-      assert.equal((await response).status(), 200);
+      const saved = await response;
+      assert.equal(saved.status(), 200);
+      assert.equal(saved.request().postDataJSON().override_level, target, 'the submitted target must equal the selected draft');
+      assert.equal((await saved.json()).data.override_level, target);
     };
     await setTarget(primary, 25);
     await setTarget(secondaryDeviceId, 40);
@@ -282,10 +328,7 @@ async function main() {
     assert.equal(second.latest_level_cm, null);
     const external = await context.request.post(baseUrl + '/api/devices/' + primary + '/override', { data: { override_level: 30, expected_version: first.rule_version } });
     assert.equal(external.status(), 200);
-    await page.locator('#slider-' + demoDeviceIds[1]).evaluate(element => {
-      element.value = '33';
-      element.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    await page.locator('#target-input-' + demoDeviceIds[1]).fill('33');
     await page.evaluate(() => pollData());
     await page.waitForFunction(id => document.getElementById('slider-' + id)?.value === '30', primary);
     assert.equal(await page.locator('#slider-' + demoDeviceIds[1]).inputValue(), '33');
@@ -352,6 +395,45 @@ async function main() {
     assert.equal(await page.locator('#leaflet-map .rain-pulse-circle').count(), 0);
     await page.locator('#site-selector').selectOption(siteId);
     await page.waitForFunction(id => currentSiteId === id && latestDevicesList.some(d => d.id === '11111111-1111-4111-8111-111111111111'), siteId);
+  });
+  if (virtualMode) await check('Admin off freezes a bay during rain, removes its alarm and reactivation restores online', async () => {
+    await sample('critical');
+    await page.evaluate(() => pollData());
+    await page.waitForFunction(() => document.querySelector('#kpi-active-alerts').textContent === '3');
+    const target = demoDeviceIds[2];
+    await navigate(page, 'settings');
+    const row = page.locator('[data-action=edit-device][data-id="' + target + '"]').locator('xpath=ancestor::tr');
+    await row.getByRole('button', { name: 'Vô hiệu hóa', exact: true }).click();
+    const disabledResponse = page.waitForResponse(r => r.url().endsWith('/devices/' + target) && r.request().method() === 'DELETE');
+    await page.locator('#modal-delete-device.active').getByRole('button', { name: 'Vô hiệu hóa', exact: true }).click();
+    assert.equal((await disabledResponse).status(), 200);
+    const disabled = (await overview()).devices.find(device => device.id === target);
+    const beforeReadings = (await (await context.request.get(baseUrl + '/api/devices/' + target + '/readings?limit=2000')).json()).data;
+    assert.equal(disabled.data_status, 'disabled');
+    const storm = { events: [{ lat: 10.7762, lng: 106.7012, radius_m: 3000, intensity: 30 }] };
+    const rain = await context.request.post(baseUrl + '/api/devices/site/' + siteId + '/demo-rain-step', { data: storm });
+    assert.equal(rain.status(), 201);
+    assert(!(await rain.json()).data.readings.some(reading => reading.device_id === target));
+    const frozen = (await overview()).devices.find(device => device.id === target);
+    assert.equal(frozen.latest_level_cm, disabled.latest_level_cm);
+    assert.equal(frozen.latest_measured_at, disabled.latest_measured_at);
+    assert.deepEqual((await (await context.request.get(baseUrl + '/api/devices/' + target + '/readings?limit=2000')).json()).data, beforeReadings);
+    assert(!(await (await context.request.get(baseUrl + '/api/alerts/site/' + siteId)).json()).data.some(alert => alert.device_id === target && alert.is_current));
+    await navigate(page, 'dashboard');
+    await page.waitForFunction(() => document.querySelector('#kpi-total-devices').textContent === '2' && document.querySelector('#kpi-active-alerts').textContent === '2');
+    const disabledCount = (await overview()).devices.filter(device => !device.is_active).length;
+    assert.equal(Number(await page.locator('#kpi-offline-devices').textContent()), disabledCount);
+    await screenshot(page, 'virtual-admin-off.png');
+    await navigate(page, 'settings');
+    const enabledResponse = page.waitForResponse(r => r.url().endsWith('/devices/' + target) && r.request().method() === 'PUT');
+    await page.locator('[data-action=toggle-device][data-id="' + target + '"]').click();
+    assert.equal((await enabledResponse).status(), 200);
+    assert.equal((await overview()).devices.find(device => device.id === target).data_status, 'online');
+    const zero = await context.request.post(baseUrl + '/api/devices/site/' + siteId + '/demo-sample', { data: { scenario: 'custom', level_cm: 0 } });
+    assert.equal(zero.status(), 201);
+    await navigate(page, 'dashboard');
+    await page.waitForFunction(() => document.querySelector('#kpi-total-devices').textContent === '3' && document.querySelector('#kpi-active-alerts').textContent === '0');
+    await screenshot(page, 'virtual-reactivated-no-alerts.png');
   });
   await check('mobile menu, navigation and logout are usable at 390 pixels', async () => {
     await navigate(page, 'dashboard');

@@ -1,0 +1,90 @@
+{
+  "started_at": "2026-10-23T02:23:13.188Z",
+  "browser": "Chrome headless",
+  "isolated_database": true,
+  "checks": [
+    {
+      "name": "manager dashboard starts with three points and no fabricated readings",
+      "status": "passed"
+    },
+    {
+      "name": "map tiles send origin referrer, fail gracefully and recover without losing device markers",
+      "status": "passed"
+    },
+    {
+      "name": "normal then warning transitions only after the third sample",
+      "status": "passed"
+    },
+    {
+      "name": "critical dashboard renders real chart and current sensor quality",
+      "status": "passed"
+    },
+    {
+      "name": "alert acknowledgement preserves critical level and active episode",
+      "status": "passed"
+    },
+    {
+      "name": "manager simulator uses the shared one-sample endpoint and shows thresholds",
+      "status": "passed"
+    },
+    {
+      "name": "history chart, range selector and CSV download work",
+      "status": "passed"
+    },
+    {
+      "name": "device creation renders hostile names as text and shows a key only once",
+      "status": "passed"
+    },
+    {
+      "name": "manual target cards cover managed sites and save independently without replacing measurements or drafts",
+      "status": "passed"
+    },
+    {
+      "name": "weather legend restores regional rise, map storms, drainage and explicit stop with site isolation",
+      "status": "passed"
+    },
+    {
+      "name": "mobile menu, navigation and logout are usable at 390 pixels",
+      "status": "passed"
+    },
+    {
+      "name": "staff receives clean dashboard, reports and no administration or simulator",
+      "status": "passed"
+    },
+    {
+      "name": "backend outage displays connection failure and preserves previous values",
+      "status": "passed"
+    }
+  ],
+  "screenshots": [
+    "artifacts/e2e-telemetry/screenshots/desktop-critical-dashboard.png",
+    "artifacts/e2e-telemetry/screenshots/alert-center.png",
+    "artifacts/e2e-telemetry/screenshots/device-simulator.png",
+    "artifacts/e2e-telemetry/screenshots/restored-manual-targets.png",
+    "artifacts/e2e-telemetry/screenshots/restored-rain-map.png",
+    "artifacts/e2e-telemetry/screenshots/mobile-navigation.png",
+    "artifacts/e2e-telemetry/screenshots/mobile-restored-weather.png",
+    "artifacts/e2e-telemetry/screenshots/mobile-restored-targets.png",
+    "artifacts/e2e-telemetry/screenshots/staff-reports.png"
+  ],
+  "javascript_errors": [],
+  "api_errors": [],
+  "map_tiles": {
+    "source": "intercepted PNG fixtures",
+    "live_provider_verified": false,
+    "http_status_cases": [
+      200,
+      403
+    ],
+    "failure_payload": "valid PNG",
+    "requests": 189,
+    "referrers": [
+      "http://localhost:60637/"
+    ],
+    "failure_and_recovery": "passed for dashboard and picker"
+  },
+  "device_mode": "telemetry",
+  "port": 60637,
+  "status": "passed",
+  "finished_at": "2026-10-23T02:24:35.482Z"
+}

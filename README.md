@@ -25,6 +25,8 @@ npm start
 
 Mở http://localhost:3000 . Tài khoản demo mới: `manager@example.com` / `manager123` và `staff@example.com` / `staff123`. Có thể đặt mật khẩu khác qua `DEMO_MANAGER_PASSWORD` và `DEMO_STAFF_PASSWORD` trước lần seed đầu. Seed lặp lại giữ nguyên mật khẩu, thiết bị và lịch sử hiện có.
 
+Mặc định `DEVICE_MODE=simulation`: bãi đang bật luôn trực tuyến, kể cả khi không mưa hoặc đã dừng gửi. Tắt bãi trong **Quản trị** mới đưa bãi về ngoại tuyến; mưa không thay đổi số đo của bãi đã tắt. Cảnh báo/chuông chỉ xuất hiện khi mực nước đạt ngưỡng đỏ, hết đỏ thì ngừng cảnh báo. Màu vàng là trạng thái theo dõi. Xem [chế độ hoạt động](docs/device-modes.md).
+
 Ở cửa sổ PowerShell thứ hai:
 
 ```powershell
@@ -33,19 +35,19 @@ npm run simulator -- --scenario rise-fall --ticks 14
 
 Simulator đọc ba khóa đã cấp từ `.env.simulator`; seed tạo khóa ngẫu nhiên cho thiết bị mới. Mỗi thiết bị gửi một mẫu mỗi5giây. Khóa cũ không thể khôi phục từ hash: quản lý có thể cấp lại trong Quản trị, sao chép khóa một lần rồi sửa cấu hình simulator. Thay `PORT` và `APP_BASE_URL` cùng nhau nếu cổng3000 đã được dùng.
 
-Trang **Mô phỏng thiết bị** có thanh trượt riêng cho từng bãi/điểm đo thuộc các cơ sở bạn quản lý. **Cài Đặt Mức Nước** lưu mục tiêu 5–90 cm và đặt ngưỡng vàng 50%, đỏ 100%, kết thúc 30%, xác nhận sau 1 mẫu như chức năng cũ. **Đặt Lại** khôi phục 10/20/7 cm và 3 mẫu. Mực nước đo được hiển thị riêng; lưu mục tiêu không tự tạo số đo. Bộ gửi theo kịch bản vẫn ở phần **Kiểm thử nâng cao** bên dưới.
+Trang **Mô phỏng thiết bị** có thanh trượt riêng cho từng bãi/điểm đo thuộc các cơ sở bạn quản lý. **Cài Đặt Mức Nước** lưu mục tiêu 5–90 cm và đặt ngưỡng vàng 50%, đỏ 100%, kết thúc 30%, cấu hình 1 mẫu như chức năng cũ. **Đặt Lại** khôi phục cấu hình 10/20/7 cm và 3 mẫu. Trong chế độ mô phỏng, cảnh báo đỏ bật ngay theo số đo hiện tại; chế độ telemetry dùng số mẫu/ngưỡng kết thúc đã cấu hình. Mực nước đo được hiển thị riêng; lưu mục tiêu không tự tạo số đo. Bộ gửi theo kịch bản vẫn ở phần **Kiểm thử nâng cao** bên dưới.
 
 Trong chú thích bản đồ **Tổng quan**, chọn **Mưa Nhỏ**, **Mưa Vừa** hoặc **Bão Lớn**, rồi nhấp bản đồ/điểm đo/vùng nguy cơ hoặc chọn nhanh **Bãi Xanh/Vàng/Đỏ**. Vùng mưa bán kính 3 km làm nước dâng khác nhau theo cường độ, khoảng cách và mức dễ ngập. **Tạnh Mưa** để nước rút theo từng vùng; **Dừng mô phỏng** dừng gửi số đo. Xem [thuật toán và cách dùng](docs/rain-simulation.md).
 
-Bấm dừng mô phỏng trên web trước khi chạy simulator độc lập để giữ kịch bản dễ quan sát. Khi không có nguồn gửi, website không tự sinh số đo hoặc đánh dấu thiết bị trực tuyến.
+Bấm dừng mô phỏng trên web trước khi chạy simulator độc lập để giữ kịch bản dễ quan sát. Trạng thái trực tuyến của bãi ảo phụ thuộc nút bật/tắt; không tạo heartbeat hoặc reading giả để giữ kết nối. Bãi ảo chưa có số đo hiển thị nền mô phỏng 0 cm với nguồn dữ liệu riêng. Khi kiểm tra thiết bị/CLI theo timeout và quy tắc ba mẫu, đặt `DEVICE_MODE=telemetry` trong `.env` rồi khởi động lại backend.
 
 ## Chức năng và quy tắc
 
 - Đăng nhập, đăng xuất, quản lý và nhân viên có quyền theo cơ sở; tài khoản bị khóa mất quyền ngay ở yêu cầu API tiếp theo.
 - Tổng quan, chất lượng dữ liệu, biểu đồ, lịch sử1/24/48/168giờ, cảnh báo, hồ sơ sự cố và xuấtCSV theo quyền.
 - Quản lý tạo/cập nhật/vô hiệu hóa điểm đo, cấp lại khóa, chỉnh ngưỡng có kiểm tra phiên bản, quản lý tài khoản và xem nhật ký.
-- Mặc định cần3mẫu liên tiếp: từ10cm tạo cảnh báo, từ20cm nâng mức cao, dưới7cm kết thúc đợt. Xác nhận tiếp nhận không tự kết thúc cảnh báo.
-- Bản tin quá15giây hoặc không mới hơn mẫu hiện tại chỉ vào lịch sử; mẫu tương lai5–60giây cũng chỉ vào lịch sử; quá60giây bị từ chối. Khoảng gián đoạn trên30giây đặt lại bộ đếm. Sau30giây không nhận dữ liệu, trạng thái mất kết nối được hiển thị.
+- Trong chế độ mô phỏng: vàng để theo dõi, đạt ngưỡng đỏ tạo một cảnh báo cho bãi, xuống dưới đỏ thì kết thúc. Trong chế độ telemetry: mặc định3mẫu liên tiếp, cảnh báo10cm, mức cao20cm, kết thúc dưới7cm. Xác nhận tiếp nhận không tự kết thúc cảnh báo.
+- Bản tin quá15giây hoặc không mới hơn mẫu hiện tại chỉ vào lịch sử; mẫu tương lai5–60giây cũng chỉ vào lịch sử; quá60giây bị từ chối. Khoảng gián đoạn trên30giây đặt lại bộ đếm. Chế độ telemetry hiển thị mất kết nối sau30giây không nhận dữ liệu; bãi ảo chỉ ngoại tuyến khi bị tắt trong Quản trị.
 - `sensor_error` đi cùng `level_cm: null`, không được biểu diễn thành mực nước0. Mực nước hợp lệ0–90cm theo giả định cảm biến H100cm, khoảng cách10–100cm.
 - Khóa băm bcrypt, UUID bản tin chống trùng, giới hạn tốc độ, truy vấn có tham số, cookie HttpOnly/SameSite và kiểm tra Origin cho yêu cầu web ghi dữ liệu.
 - Hồ sơ hoàn tất sau khi đợt cảnh báo đã kết thúc, có người tiếp nhận và ghi chú kết quả; báo cáo ban đầu không thay ghi chú kết quả.

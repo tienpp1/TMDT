@@ -2,6 +2,8 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 process.env.NODE_ENV = 'test';
+// Existing suites exercise physical telemetry semantics explicitly.
+process.env.DEVICE_MODE = 'telemetry';
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmdt-test-'));
 process.env.SQLITE_PATH = path.join(testDir, 'test.sqlite');
 process.env.SESSION_SECRET = 'test-session-secret-not-for-deployment';

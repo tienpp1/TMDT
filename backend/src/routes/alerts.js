@@ -61,15 +61,17 @@ router.post('/:id/ack', requireAuth, checkAlertMembership, requireSiteMember, as
 router.get('/site/:siteId', requireAuth, requireSiteMember, async (req, res) => {
   try {
     const result = await db.query(`
-      SELECT a.id, a.episode_id, a.level, a.opened_at, a.ack_at, a.resolved_at, u.display_name AS ack_by_name, d.name as device_name, d.id as device_id
+      SELECT a.id, a.episode_id, a.level, a.opened_at, a.ack_at, a.resolved_at, u.display_name AS ack_by_name, d.name as device_name, d.id as device_id,
+        CASE WHEN d.is_active=1 AND d.latest_quality='ok' AND d.latest_level_cm IS NOT NULL AND d.latest_level_cm>=r.critical_cm AND a.level='critical' AND a.episode_id=d.active_episode_id AND a.resolved_at IS NULL THEN 1 ELSE 0 END AS is_current
       FROM alerts a
       JOIN devices d ON a.device_id = d.id
+      LEFT JOIN alert_rules r ON r.device_id=d.id
       LEFT JOIN users u ON u.id=a.ack_by
       WHERE d.site_id = $1
-      ORDER BY a.opened_at DESC
+      ORDER BY is_current DESC,a.opened_at DESC
       LIMIT 100
     `, [req.params.siteId]);
-    res.json({ data: result.rows });
+    res.json({ data: result.rows.map(alert => ({ ...alert, is_current: Boolean(alert.is_current) })) });
   } catch (error) {
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Lỗi máy chủ' } });
   }

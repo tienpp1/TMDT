@@ -30,7 +30,9 @@ App kiểm tra Origin đối với thao tác thay đổi trạng thái; dùng JS
 | GET `/api/events` | Có phiên | SSE báo thay đổi; tải dữ liệu lại qua API có quyền |
 | GET `/api/reports/site/:siteId/device/:id/csv` | Thành viên đúng cơ sở | CSV; phải kiểm tra cả site và device |
 
-Các endpoint công việc/ghi chú/báo cáo hỗ trợ quản lý, không thay luồng telemetry. Điều khiển demo gắn nhãn mô phỏng và đi qua cùng logic cảnh báo theo `sample_count` đã cấu hình, mặc định ba mẫu.
+Các endpoint công việc/ghi chú/báo cáo hỗ trợ quản lý, không thay luồng telemetry. Điều khiển demo gắn nhãn mô phỏng và đi qua cùng bộ xử lý nhận dữ liệu và chính sách cảnh báo theo chế độ.
+
+Chính sách cảnh báo phụ thuộc `DEVICE_MODE`: mặc định `simulation` giữ bãi được bật luôn online, vàng chỉ theo dõi, báo ngay khi đạt đỏ và kết thúc dưới đỏ. `telemetry` dùng số mẫu/ngưỡng kết thúc đã cấu hình. Overview bổ sung trạng thái hiển thị/nguồn số đo; danh sách cảnh báo có `is_current`. Xem [device-modes.md](device-modes.md). Các trường đọc dữ liệu gốc không bị thay bằng heartbeat hoặc reading giả.
 
 ## Payload telemetry
 
@@ -65,7 +67,7 @@ Timestamp hơn 60 giây tương lai bị từ chối; timestamp hơn 5 giây tư
 { "warning_cm": 10, "critical_cm": 20, "clear_cm": 7, "sample_count": 3, "expected_version": 1 }
 ```
 
-Luật cần `clear_cm < warning_cm < critical_cm`, sample_count nguyên dương trong giới hạn. Version cũ trả 409; cập nhật tăng version, reset đếm và ghi audit. Ack lặp lại idempotent, không ghi đè người/thời điểm ban đầu. Ack không đặt resolved_at; cần đủ số mẫu phục hồi theo cấu hình mới đóng đợt.
+Luật cần `clear_cm < warning_cm < critical_cm`, sample_count nguyên dương trong giới hạn. Version cũ trả 409; cập nhật tăng version, reset đếm và ghi audit. Ack lặp lại idempotent, không ghi đè người/thời điểm ban đầu. Ack không đặt resolved_at. Chế độ mô phỏng đóng đợt ngay khi có mẫu hợp lệ dưới ngưỡng đỏ; chế độ telemetry cần đủ số mẫu phục hồi theo cấu hình.
 
 DELETE thiết bị là vô hiệu hóa (`is_active=0`), giữ lịch sử/cảnh báo/audit; PUT có thể cập nhật metadata hoặc kích hoạt lại, không dùng để bỏ kiểm tra version của luật. Readings hỗ trợ `since`, `until`, `limit` (1–2000). History-stats nhận `hours` trong 1/24/48/168 và giới hạn chuỗi hiển thị, thông báo khi bị giới hạn; CSV phải đối chiếu cùng khoảng thời gian.
 
@@ -77,4 +79,4 @@ Hồ sơ sự cố có báo cáo, phân công, ghi chú và hoàn tất. Ghi ch�
 
 `POST /api/devices/site/:siteId/demo-rain-step` nhận `{"events":[{"lat":10.776,"lng":106.701,"radius_m":3000,"intensity":15}]}`. Tối đa 20 vùng; tọa độ hữu hạn trong miền địa lý, bán kính đúng 3000 m, cường độ chỉ 5/15/30. `events:[]` chạy một bước rút nước. Một request tương ứng một giây mô hình; không có worker chạy khi import. Các bước mưa và lưu mục tiêu cùng cơ sở được xếp tuần tự để tránh dùng mục tiêu cũ với ngưỡng mới.
 
-Trả HTTP 201 với `data:{readings:[{device_id,level_cm,...}],has_water,needs_samples}`. Điểm chưa có mực nước ngoài vùng mưa không sinh giá trị 0. Khi chủ động tạo mưa tại điểm chưa có số đo, mô hình khởi đầu từ nền giả lập 0 cm. Mỗi mẫu đi qua ingestion và logic cảnh báo hiện hành. Khi đã về 0 nhưng chưa đủ mẫu kết thúc cảnh báo, `needs_samples=true` yêu cầu gửi thêm bước rút; giao diện dừng khi cả `has_water` và `needs_samples` đều false. Thuật toán chi tiết ở [rain-simulation.md](rain-simulation.md).
+Trả HTTP 201 với `data:{readings:[{device_id,level_cm,...}],has_water,needs_samples}`. Điểm chưa có mực nước ngoài vùng mưa không sinh giá trị 0. Khi chủ động tạo mưa tại điểm chưa có số đo, mô hình khởi đầu từ nền giả lập 0 cm. Mỗi mẫu đi qua ingestion và logic cảnh báo hiện hành. Ở chế độ telemetry, khi đã về 0 nhưng chưa đủ mẫu kết thúc cảnh báo, `needs_samples=true` yêu cầu gửi thêm bước rút; giao diện dừng khi cả `has_water` và `needs_samples` đều false. Thuật toán chi tiết ở [rain-simulation.md](rain-simulation.md).

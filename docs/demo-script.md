@@ -8,6 +8,8 @@ Dừng CLI. Vào **Mô phỏng thiết bị**, đặt mục tiêu riêng cho cá
 
 ## Chuẩn bị
 
+Với kịch bản kiểm tra ba mẫu/mất kết nối bên dưới, đặt `DEVICE_MODE=telemetry` trong `.env` và khởi động lại backend. Chế độ mặc định `simulation` giữ bãi đang bật luôn online và chỉ báo động đỏ tức thời; dùng chế độ này cho phần trình diễn mưa và bật/tắt trong Quản trị.
+
 Theo README để cấu hình, migrate/seed DB demo và chạy backend; không seed vào DB cần giữ. Mở tài khoản manager/staff, không chiếu mật khẩu/khóa lên màn hình. Xác nhận một bãi xe, ba điểm, ngưỡng 10/20/7 cm, sample_count=3. Terminal thứ hai chạy simulator.
 
 ## Trình tự

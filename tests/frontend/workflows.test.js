@@ -397,6 +397,88 @@ test('sensor errors and missing measurements display unavailable instead of zero
   expect(ui.node('clone:.device-badge').textContent).toContain('NGUY HIỂM');
 });
 
+test('virtual baseline is online at zero without inventing a measurement timestamp', () => {
+  const ui = loadUI();
+  ui.run("renderDashboard([{id:'d',name:'Bãi xe',is_active:1,device_mode:'simulation',data_status:'online',measurement_status:'no_data',display_level_cm:0,level_source:'simulation_baseline',current_level_status:'normal',latest_quality:null,latest_level_cm:null,latest_measured_at:null,current_alert_level:'critical'}],[],[])");
+  expect(ui.node('clone:.level-value').textContent).toBe(0);
+  expect(ui.node('clone:.quality-text').textContent).toContain('Mô phỏng');
+  expect(ui.node('clone:.device-badge').textContent).toContain('Trực tuyến');
+  expect(ui.node('clone:.device-badge').textContent).not.toContain('NGUY HIỂM');
+  expect(ui.node('clone:.time').textContent).toBe('Chưa có');
+  expect(Number(ui.node('kpi-offline-devices').textContent)).toBe(0);
+  expect(ui.run('chartInstance.data.datasets[0].data')).toEqual([0]);
+});
+
+test('an online virtual sensor error is unavailable without being counted as an offline bay', () => {
+  const ui = loadUI();
+  ui.run("renderDashboard([{id:'d',name:'Bãi xe',is_active:1,device_mode:'simulation',data_status:'online',measurement_status:'sensor_error',display_level_cm:null,level_source:'unavailable',current_level_status:'unknown',latest_quality:'sensor_error',latest_level_cm:null,current_alert_level:'critical'}],[],[])");
+  expect(ui.node('clone:.level-value').textContent).toBe('--');
+  expect(ui.node('clone:.quality-text').textContent).toContain('Lỗi cảm biến');
+  expect(ui.node('clone:.device-badge').textContent).toBe('Trực tuyến · Lỗi cảm biến');
+  expect(ui.node('clone:.device-badge').textContent).not.toContain('NGUY HIỂM');
+  expect(ui.node('clone:.device-badge').textContent).not.toContain('Chưa vượt ngưỡng');
+  expect(Number(ui.node('kpi-offline-devices').textContent)).toBe(0);
+});
+
+test('an online bay with unknown measurement quality does not claim a normal water level', () => {
+  const ui = loadUI();
+  ui.run("renderDashboard([{id:'d',name:'Bãi xe',is_active:1,device_mode:'simulation',data_status:'online',measurement_status:'no_data',display_level_cm:null,level_source:'unavailable',current_level_status:'unknown',latest_quality:null,latest_level_cm:null}],[],[])");
+  expect(ui.node('clone:.device-badge').textContent).toBe('Trực tuyến · Chưa có số đo');
+  expect(ui.node('clone:.level-value').textContent).toBe('--');
+});
+
+test('admin-disabled virtual bays are offline and cannot retain a red display', () => {
+  const ui = loadUI();
+  ui.run("renderDashboard([{id:'d',name:'Bãi xe',is_active:0,device_mode:'simulation',data_status:'disabled',measurement_status:'disabled',display_level_cm:null,level_source:'unavailable',current_level_status:'disabled',latest_quality:'ok',latest_level_cm:40,current_alert_level:'critical'}],[],[])");
+  expect(ui.node('clone:.device-badge').textContent).toContain('Đã tắt trong Quản trị');
+  expect(ui.node('clone:.device-badge').textContent).not.toContain('NGUY HIỂM');
+  expect(Number(ui.node('kpi-offline-devices').textContent)).toBe(1);
+  expect(Number(ui.node('kpi-total-devices').textContent)).toBe(0);
+});
+
+test('dashboard notifications count only unique current red bays and acknowledgements mute their bell', () => {
+  const ui = loadUI();
+  ui.run("window.testDevices=[{id:'red',is_active:1,device_mode:'simulation',data_status:'online',display_level_cm:25,current_level_status:'critical',critical_cm:20},{id:'old',is_active:1,device_mode:'simulation',data_status:'online',display_level_cm:0,current_level_status:'normal',critical_cm:20,current_alert_level:'critical'},{id:'yellow',is_active:1,device_mode:'simulation',data_status:'online',display_level_cm:15,current_level_status:'warning',critical_cm:20},{id:'off',is_active:0,device_mode:'simulation',data_status:'disabled',display_level_cm:null,current_level_status:'disabled',critical_cm:20}]; window.testAlerts=[{id:'a',device_id:'red',level:'critical',is_current:true},{id:'duplicate',device_id:'red',level:'critical',is_current:true},{id:'historical',device_id:'old',level:'critical',is_current:false},{id:'warning',device_id:'yellow',level:'warning',is_current:false},{id:'disabled',device_id:'off',level:'critical',is_current:false}]; renderDashboard(testDevices,testAlerts,[])");
+  expect(Number(ui.node('kpi-active-alerts').textContent)).toBe(1);
+  expect(Number(ui.node('notification-badge').textContent)).toBe(1);
+  expect(ui.node('priority-banner').classList.contains('hidden')).toBe(false);
+  ui.run("testAlerts.forEach(alert=>alert.ack_at='2026-10-23T00:00:00Z'); renderDashboard(testDevices,testAlerts,[])");
+  expect(Number(ui.node('kpi-active-alerts').textContent)).toBe(1);
+  expect(ui.node('notification-badge').style.display).toBe('none');
+  expect(ui.node('priority-banner').classList.contains('hidden')).toBe(true);
+  ui.run("testDevices[0].display_level_cm=0; testDevices[0].current_level_status='normal'; renderDashboard(testDevices,testAlerts,[])");
+  expect(Number(ui.node('kpi-active-alerts').textContent)).toBe(0);
+});
+
+test('alert center defaults to current red alerts and preserves old records behind the history filter', () => {
+  const ui = loadUI();
+  ui.run("window.testAlerts=[{id:'old',device_id:'d',device_name:'Bãi cũ',level:'critical',is_current:false,resolved_at:null}]; renderAlerts(testAlerts)");
+  expect(ui.node('alerts-tbody').innerHTML).toContain('Không có bãi xe vượt ngưỡng đỏ');
+  ui.node('alerts-filter').value = 'history';
+  ui.run('renderAlerts(testAlerts)');
+  expect(ui.node('alerts-tbody').children[0].innerHTML).toContain('Bãi cũ');
+  expect(ui.node('alerts-tbody').children[0].innerHTML).toContain('Lịch sử');
+  expect(ui.node('alerts-tbody').children[0].innerHTML).not.toContain('data-action="ack-alert"');
+});
+
+test('manual virtual cards display projected zero and the immediate red notification policy', () => {
+  const ui = loadUI();
+  ui.run("manualDevicesCache=[{id:'d',site_id:'site',is_active:1,device_mode:'simulation',data_status:'online',measurement_status:'no_data',display_level_cm:0,level_source:'simulation_baseline',current_level_status:'normal',latest_quality:null,latest_level_cm:null,rule_version:2,critical_cm:20,sample_count:3}]; renderWaterLevelsPage()");
+  expect(ui.node('measured-level-d').textContent).toBe('0 cm');
+  expect(ui.node('measured-status-d').textContent).toContain('Mô phỏng');
+  expect(ui.node('rule-status-d').textContent).toContain('Báo ngay khi đạt ngưỡng đỏ');
+  expect(ui.node('rule-status-d').textContent).not.toContain('3 mẫu liên tiếp');
+});
+
+test('stopping a virtual source explains that enabled bays remain online', () => {
+  const ui = loadUI();
+  ui.run("currentDeviceMode='simulation'; stopRainSimulation(); stopDemo()");
+  expect(ui.node('weather-status').textContent).not.toContain('30 giây');
+  expect(ui.node('demo-status').textContent).not.toContain('30 giây');
+  expect(ui.node('weather-status').textContent).toContain('trực tuyến');
+  expect(ui.node('demo-status').textContent).toContain('trực tuyến');
+});
+
 test('different device timestamps keep continuous individual series and only real sensor errors produce gaps', () => {
   const ui = loadUI();
   ui.run("renderHistoryChart([{id:'a',name:'A',readings:[{measured_at:'2026-10-23T00:00:00Z',level_cm:1,quality:'ok'},{measured_at:'2026-10-23T00:00:10Z',level_cm:null,quality:'sensor_error'},{measured_at:'2026-10-23T00:00:20Z',level_cm:2,quality:'ok'}]},{id:'b',name:'B',readings:[{measured_at:'2026-10-23T00:00:05Z',level_cm:3,quality:'ok'},{measured_at:'2026-10-23T00:00:15Z',level_cm:4,quality:'ok'}]}])");

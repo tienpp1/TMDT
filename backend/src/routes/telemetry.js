@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const db = require('../db');
+const { isSimulationMode } = require('../lib/device-mode');
 const router = express.Router();
 const rateLimits = new Map();
 const ipLimits = new Map();
@@ -78,22 +79,42 @@ async function ingestReading(body, now = Date.now()) {
         warning_count = level_cm >= rule.warning_cm ? Math.min(warning_count + 1, rule.sample_count) : 0;
         critical_count = level_cm >= rule.critical_cm ? Math.min(critical_count + 1, rule.sample_count) : 0;
         clear_count = level_cm < rule.clear_cm ? Math.min(clear_count + 1, rule.sample_count) : 0;
-        let nextLevel = current_alert_level;
-        if (current_alert_level !== 'normal' && clear_count >= rule.sample_count) nextLevel = 'normal';
-        else if (current_alert_level !== 'critical' && critical_count >= rule.sample_count) nextLevel = 'critical';
-        else if (current_alert_level === 'normal' && warning_count >= rule.sample_count) nextLevel = 'warning';
-        if (nextLevel !== current_alert_level) {
-          if (nextLevel === 'normal') {
-            await client.query('UPDATE alerts SET resolved_at = $1 WHERE episode_id = $2 AND resolved_at IS NULL', [received_at, active_episode_id]);
-            active_episode_id = null;
-          } else {
-            if (current_alert_level === 'normal') {
+        if (isSimulationMode()) {
+          // Virtual lots notify immediately on a real fresh red sample. Yellow
+          // is a visual state; physical confirmation and hysteresis remain below.
+          const nextLevel = level_cm >= rule.critical_cm ? 'critical' : level_cm >= rule.warning_cm ? 'warning' : 'normal';
+          if (nextLevel === 'critical') {
+            const open = active_episode_id ? (await client.query("SELECT id FROM alerts WHERE episode_id=$1 AND device_id=$2 AND level='critical' AND resolved_at IS NULL", [active_episode_id, device_id])).rows[0] : null;
+            if (!open) {
+              if (active_episode_id) await client.query('UPDATE alerts SET resolved_at=$1 WHERE episode_id=$2 AND resolved_at IS NULL', [received_at, active_episode_id]);
               active_episode_id = crypto.randomUUID();
-              await client.query("INSERT INTO incidents (id, episode_id, site_id, device_id, title, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'new',$6,$6)", [crypto.randomUUID(), active_episode_id, state.site_id, device_id, `Cảnh báo mực nước: ${state.name}`, received_at]);
+              await client.query("INSERT INTO incidents (id,episode_id,site_id,device_id,title,status,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'new',$6,$6)", [crypto.randomUUID(), active_episode_id, state.site_id, device_id, `Cảnh báo mực nước: ${state.name}`, received_at]);
+              await client.query("INSERT INTO alerts (id,episode_id,device_id,level,opened_at,trigger_reading_id,rule_version) VALUES ($1,$2,$3,'critical',$4,$5,$6)", [crypto.randomUUID(), active_episode_id, device_id, received_at, readingId, rule.version]);
             }
-            await client.query('INSERT INTO alerts (id, episode_id, device_id, level, opened_at, trigger_reading_id, rule_version) VALUES ($1,$2,$3,$4,$5,$6,$7)', [crypto.randomUUID(), active_episode_id, device_id, nextLevel, received_at, readingId, rule.version]);
+          } else {
+            if (active_episode_id) await client.query('UPDATE alerts SET resolved_at=$1 WHERE episode_id=$2 AND resolved_at IS NULL', [received_at, active_episode_id]);
+            active_episode_id = null;
           }
           current_alert_level = nextLevel;
+        } else {
+          let nextLevel = current_alert_level;
+          if (current_alert_level !== 'normal' && clear_count >= rule.sample_count) nextLevel = 'normal';
+          else if (current_alert_level !== 'critical' && critical_count >= rule.sample_count) nextLevel = 'critical';
+          else if (current_alert_level === 'normal' && warning_count >= rule.sample_count) nextLevel = 'warning';
+          const confirmedWithoutEpisode = !active_episode_id && ((nextLevel === 'critical' && critical_count >= rule.sample_count) || (nextLevel === 'warning' && warning_count >= rule.sample_count));
+          if (nextLevel !== current_alert_level || confirmedWithoutEpisode) {
+            if (nextLevel === 'normal') {
+              await client.query('UPDATE alerts SET resolved_at = $1 WHERE episode_id = $2 AND resolved_at IS NULL', [received_at, active_episode_id]);
+              active_episode_id = null;
+            } else {
+              if (current_alert_level === 'normal' || !active_episode_id) {
+                active_episode_id = crypto.randomUUID();
+                await client.query("INSERT INTO incidents (id, episode_id, site_id, device_id, title, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'new',$6,$6)", [crypto.randomUUID(), active_episode_id, state.site_id, device_id, `Cảnh báo mực nước: ${state.name}`, received_at]);
+              }
+              await client.query('INSERT INTO alerts (id, episode_id, device_id, level, opened_at, trigger_reading_id, rule_version) VALUES ($1,$2,$3,$4,$5,$6,$7)', [crypto.randomUUID(), active_episode_id, device_id, nextLevel, received_at, readingId, rule.version]);
+            }
+            current_alert_level = nextLevel;
+          }
         }
       }
       await client.query(`UPDATE devices SET last_seen=$1,last_fresh_received_at=$2,latest_measured_at=$3,latest_quality=$4,latest_level_cm=$5,warning_count=$6,critical_count=$7,clear_count=$8,current_alert_level=$9,active_episode_id=$10 WHERE id=$11`, [received_at, quality === 'ok' ? received_at : state.last_fresh_received_at, measured_at, quality, level_cm, warning_count, critical_count, clear_count, current_alert_level, active_episode_id, device_id]);
