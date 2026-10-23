@@ -4,9 +4,20 @@ const crypto = require('crypto');
 const db = require('../db');
 const { requireAuth, requireSiteMember, requireSiteManager } = require('../middleware/auth');
 const { ingestReading } = require('./telemetry');
+const { rainStep } = require('../lib/rain-simulation');
 const router = express.Router();
-const DEVICE_FIELDS = 'd.id,d.site_id,d.name,d.point_label,d.is_active,d.last_seen,d.last_fresh_received_at,d.latest_measured_at,d.latest_quality,d.latest_level_cm,d.current_alert_level,d.created_at,d.lat,d.lng,d.zone_radius_km,d.risk_level';
+const DEVICE_FIELDS = 'd.id,d.site_id,d.name,d.point_label,d.is_active,d.last_seen,d.last_fresh_received_at,d.latest_measured_at,d.latest_quality,d.latest_level_cm,d.current_alert_level,d.demo_override_level,d.created_at,d.lat,d.lng,d.zone_radius_km,d.risk_level';
 const RULE_FIELDS = 'r.warning_cm,r.critical_cm,r.clear_cm,r.sample_count,r.version AS rule_version';
+const rainPeaks = new Map();
+const rainLevels = new Map();
+const rainQueues = new Map();
+async function simulationQueue(site, action) {
+  const previous = rainQueues.get(site) || Promise.resolve();
+  const pending = previous.catch(() => {}).then(action);
+  rainQueues.set(site, pending);
+  try { return await pending; }
+  finally { if (rainQueues.get(site) === pending) rainQueues.delete(site); }
+}
 function bad(message, status = 400, code = 'BAD_REQUEST') { const error = new Error(message); Object.assign(error, { status, code }); throw error; }
 function respondError(error, res, next) { if (!error.status) return next(error); return res.status(error.status).json({ error: { code: error.code, message: error.message } }); }
 function publish(req) { req.app.locals.sseEmitter?.emit('update'); }
@@ -94,14 +105,46 @@ router.patch('/:id/rule', requireAuth, checkDeviceMembership, requireSiteManager
     const { warning_cm, critical_cm, clear_cm, sample_count, expected_version } = req.body;
     validateRules({ warning_cm, critical_cm, clear_cm, sample_count });
     if (!Number.isInteger(expected_version) || expected_version < 1) bad('Thiếu phiên bản cấu hình hợp lệ');
-    const data = await transaction(async client => {
-      const current = (await client.query('SELECT * FROM alert_rules WHERE device_id=$1', [req.params.id])).rows[0];
-      if (!current) bad('Không tìm thấy cấu hình', 404, 'NOT_FOUND');
-      if (current.version !== expected_version) bad('Cấu hình đã thay đổi. Vui lòng tải lại.', 409, 'CONFLICT');
-      const updated = { warning_cm, critical_cm, clear_cm, sample_count, version: current.version + 1 };
-      await client.query('UPDATE alert_rules SET warning_cm=$1,critical_cm=$2,clear_cm=$3,sample_count=$4,version=$5,updated_by=$6,updated_at=$7 WHERE device_id=$8', [warning_cm, critical_cm, clear_cm, sample_count, updated.version, req.session.userId, new Date().toISOString(), req.params.id]);
-      await client.query('UPDATE devices SET warning_count=0,critical_count=0,clear_count=0 WHERE id=$1', [req.params.id]);
-      await client.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,old_values,new_values) VALUES ($1,$2,'UPDATE_RULE','alert_rules',$3,$4,$5)", [req.params.siteId, req.session.userId, req.params.id, JSON.stringify(current), JSON.stringify(updated)]);
+    const data = await simulationQueue(req.params.siteId, async () => {
+      const updated = await transaction(async client => {
+        const current = (await client.query('SELECT * FROM alert_rules WHERE device_id=$1', [req.params.id])).rows[0];
+        if (!current) bad('Không tìm thấy cấu hình', 404, 'NOT_FOUND');
+        if (current.version !== expected_version) bad('Cấu hình đã thay đổi. Vui lòng tải lại.', 409, 'CONFLICT');
+        const updated = { warning_cm, critical_cm, clear_cm, sample_count, version: current.version + 1 };
+        await client.query('UPDATE alert_rules SET warning_cm=$1,critical_cm=$2,clear_cm=$3,sample_count=$4,version=$5,updated_by=$6,updated_at=$7 WHERE device_id=$8', [warning_cm, critical_cm, clear_cm, sample_count, updated.version, req.session.userId, new Date().toISOString(), req.params.id]);
+        await client.query('UPDATE devices SET warning_count=0,critical_count=0,clear_count=0 WHERE id=$1', [req.params.id]);
+        await client.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,old_values,new_values) VALUES ($1,$2,'UPDATE_RULE','alert_rules',$3,$4,$5)", [req.params.siteId, req.session.userId, req.params.id, JSON.stringify(current), JSON.stringify(updated)]);
+        return updated;
+      });
+      rainPeaks.get(req.params.siteId)?.delete(req.params.id);
+      rainLevels.get(req.params.siteId)?.delete(req.params.id);
+      return updated;
+    });
+    publish(req); res.json({ data });
+  } catch (error) { respondError(error, res, next); }
+});
+router.post('/:id/override', requireAuth, checkDeviceMembership, requireSiteManager, async (req, res, next) => {
+  try {
+    const { override_level, expected_version } = req.body;
+    if (override_level !== null && (typeof override_level !== 'number' || !Number.isFinite(override_level) || override_level < 5 || override_level > 90)) bad('Mục tiêu mô phỏng phải là số từ 5 đến 90 cm hoặc null để đặt lại');
+    if (!Number.isInteger(expected_version) || expected_version < 1) bad('Thiếu phiên bản cấu hình hợp lệ');
+    const data = await simulationQueue(req.params.siteId, async () => {
+      const updated = await transaction(async client => {
+        const device = (await client.query('SELECT is_active,demo_override_level FROM devices WHERE id=$1', [req.params.id])).rows[0];
+        if (!device?.is_active) bad('Điểm đo đã bị vô hiệu hóa', 409, 'DEVICE_DISABLED');
+        const current = (await client.query('SELECT * FROM alert_rules WHERE device_id=$1', [req.params.id])).rows[0];
+        if (!current) bad('Không tìm thấy cấu hình', 404, 'NOT_FOUND');
+        if (current.version !== expected_version) bad('Cấu hình đã thay đổi. Vui lòng tải lại.', 409, 'CONFLICT');
+        const rule = override_level === null ? { warning_cm: 10, critical_cm: 20, clear_cm: 7, sample_count: 3 } : { warning_cm: override_level * 0.5, critical_cm: override_level, clear_cm: override_level * 0.3, sample_count: 1 };
+        validateRules(rule);
+        const updated = { id: req.params.id, override_level, ...rule, rule_version: current.version + 1 };
+        await client.query('UPDATE devices SET demo_override_level=$1,warning_count=0,critical_count=0,clear_count=0 WHERE id=$2', [override_level, req.params.id]);
+        await client.query('UPDATE alert_rules SET warning_cm=$1,critical_cm=$2,clear_cm=$3,sample_count=$4,version=$5,updated_by=$6,updated_at=$7 WHERE device_id=$8', [rule.warning_cm, rule.critical_cm, rule.clear_cm, rule.sample_count, updated.rule_version, req.session.userId, new Date().toISOString(), req.params.id]);
+        await client.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,old_values,new_values) VALUES ($1,$2,'SET_DEMO_TARGET','devices',$3,$4,$5)", [req.params.siteId, req.session.userId, req.params.id, JSON.stringify({ override_level: device.demo_override_level, ...current }), JSON.stringify(updated)]);
+        return updated;
+      });
+      rainPeaks.get(req.params.siteId)?.delete(req.params.id);
+      rainLevels.get(req.params.siteId)?.delete(req.params.id);
       return updated;
     });
     publish(req); res.json({ data });
@@ -166,6 +209,59 @@ router.post('/site/:siteId/demo-sample', requireAuth, requireSiteManager, async 
     }
     await db.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,new_values) VALUES ($1,$2,'DEMO_SAMPLE','sites',$1,$3)", [req.params.siteId, req.session.userId, JSON.stringify({ scenario, device_id: req.body.device_id || null, sample_count: results.length })]);
     publish(req); res.status(201).json({ data: { scenario, readings: results } });
+  } catch (error) { respondError(error, res, next); }
+});
+router.post('/site/:siteId/demo-rain-step', requireAuth, requireSiteManager, async (req, res, next) => {
+  try {
+    const events = req.body.events;
+    if (!Array.isArray(events) || events.length > 20) bad('Cần danh sách tối đa 20 vùng mưa');
+    for (const event of events) {
+      if (!event || typeof event !== 'object' || Array.isArray(event) || typeof event.lat !== 'number' || !Number.isFinite(event.lat) || event.lat < -90 || event.lat > 90 || typeof event.lng !== 'number' || !Number.isFinite(event.lng) || event.lng < -180 || event.lng > 180 || event.radius_m !== 3000 || ![5, 15, 30].includes(event.intensity)) bad('Vùng mưa phải có tọa độ hợp lệ, bán kính 3000 m và cường độ 5, 15 hoặc 30');
+    }
+    const site = req.params.siteId;
+    const data = await simulationQueue(site, async () => {
+      const devices = (await db.query(`SELECT ${DEVICE_FIELDS},${RULE_FIELDS} FROM devices d JOIN alert_rules r ON r.device_id=d.id WHERE d.site_id=$1 AND d.is_active=1`, [site])).rows;
+      const peaks = rainPeaks.get(site) || new Map();
+      const levels = rainLevels.get(site) || new Map();
+      const readings = [];
+      let has_water = false, needs_samples = false;
+      for (const device of devices) {
+        const target = Number(device.demo_override_level) > 0 ? Number(device.demo_override_level) : Number(device.critical_cm) || 20;
+        // The restored 5–90cm slider keeps its original rounded-state model.
+        // Smaller valid admin thresholds need fractional carry so a sub-0.05cm
+        // drain step cannot round back to the same level forever.
+        const fractional = target < 5;
+        const carry = levels.get(device.id);
+        const carryMatches = fractional && carry && carry.level_cm === device.latest_level_cm && carry.measured_at === device.latest_measured_at && carry.rule_version === device.rule_version;
+        if (!carryMatches) levels.delete(device.id);
+        const result = rainStep(carryMatches ? { ...device, latest_level_cm: carry.raw_level } : device, events, peaks.get(device.id));
+        if (result.level_cm === null) {
+          if (result.peak === null) peaks.delete(device.id);
+          // A final zero is still a real sample when the configured clear sequence
+          // has not finished. Never initialize an unknown reading in dry weather.
+          if (device.latest_level_cm === 0 && device.clear_cm > 0 && ['warning', 'critical'].includes(device.current_alert_level)) result.level_cm = 0;
+          else continue;
+        }
+        const now = Date.now(), last = Date.parse(device.latest_measured_at || '');
+        const measured_at = new Date(Math.max(now, Number.isFinite(last) ? last + 1 : now)).toISOString();
+        const reading = await ingestReading({ device_id: device.id, message_id: crypto.randomUUID(), measured_at, level_cm: result.level_cm, quality: 'ok' }, now);
+        if (['warning', 'critical'].includes(result.peak)) peaks.set(device.id, result.peak); else peaks.delete(device.id);
+        if (fractional && result.raw_level > 0 && !reading.history_only) levels.set(device.id, { raw_level: result.raw_level, level_cm: result.level_cm, measured_at, rule_version: device.rule_version });
+        else levels.delete(device.id);
+        has_water ||= result.level_cm > 0 || (fractional && result.raw_level > 0);
+        if (result.level_cm < device.clear_cm) {
+          const current = (await db.query('SELECT current_alert_level FROM devices WHERE id=$1', [device.id])).rows[0];
+          needs_samples ||= ['warning', 'critical'].includes(current.current_alert_level);
+        }
+        readings.push({ device_id: device.id, level_cm: result.level_cm, ...reading });
+      }
+      if (peaks.size) rainPeaks.set(site, peaks); else rainPeaks.delete(site);
+      if (levels.size) rainLevels.set(site, levels); else rainLevels.delete(site);
+      await db.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,new_values) VALUES ($1,$2,'DEMO_RAIN_STEP','sites',$1,$3)", [site, req.session.userId, JSON.stringify({ events, sample_count: readings.length })]);
+      if (readings.length) publish(req);
+      return { readings, has_water, needs_samples };
+    });
+    res.status(201).json({ data });
   } catch (error) { respondError(error, res, next); }
 });
 module.exports = router;

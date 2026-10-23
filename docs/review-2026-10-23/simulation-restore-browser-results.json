@@ -1,0 +1,89 @@
+{
+  "started_at": "2026-10-23T01:44:29.188Z",
+  "browser": "Chrome headless",
+  "isolated_database": true,
+  "checks": [
+    {
+      "name": "manager dashboard starts with three points and no fabricated readings",
+      "status": "passed"
+    },
+    {
+      "name": "map tiles send origin referrer, fail gracefully and recover without losing device markers",
+      "status": "passed"
+    },
+    {
+      "name": "normal then warning transitions only after the third sample",
+      "status": "passed"
+    },
+    {
+      "name": "critical dashboard renders real chart and current sensor quality",
+      "status": "passed"
+    },
+    {
+      "name": "alert acknowledgement preserves critical level and active episode",
+      "status": "passed"
+    },
+    {
+      "name": "manager simulator uses the shared one-sample endpoint and shows thresholds",
+      "status": "passed"
+    },
+    {
+      "name": "history chart, range selector and CSV download work",
+      "status": "passed"
+    },
+    {
+      "name": "device creation renders hostile names as text and shows a key only once",
+      "status": "passed"
+    },
+    {
+      "name": "manual target cards cover managed sites and save independently without replacing measurements or drafts",
+      "status": "passed"
+    },
+    {
+      "name": "weather legend restores regional rise, map storms, drainage and explicit stop with site isolation",
+      "status": "passed"
+    },
+    {
+      "name": "mobile menu, navigation and logout are usable at 390 pixels",
+      "status": "passed"
+    },
+    {
+      "name": "staff receives clean dashboard, reports and no administration or simulator",
+      "status": "passed"
+    },
+    {
+      "name": "backend outage displays connection failure and preserves previous values",
+      "status": "passed"
+    }
+  ],
+  "screenshots": [
+    "artifacts/e2e/screenshots/desktop-critical-dashboard.png",
+    "artifacts/e2e/screenshots/alert-center.png",
+    "artifacts/e2e/screenshots/device-simulator.png",
+    "artifacts/e2e/screenshots/restored-manual-targets.png",
+    "artifacts/e2e/screenshots/restored-rain-map.png",
+    "artifacts/e2e/screenshots/mobile-navigation.png",
+    "artifacts/e2e/screenshots/mobile-restored-weather.png",
+    "artifacts/e2e/screenshots/mobile-restored-targets.png",
+    "artifacts/e2e/screenshots/staff-reports.png"
+  ],
+  "javascript_errors": [],
+  "api_errors": [],
+  "map_tiles": {
+    "source": "intercepted PNG fixtures",
+    "live_provider_verified": false,
+    "http_status_cases": [
+      200,
+      403
+    ],
+    "failure_payload": "valid PNG",
+    "requests": 189,
+    "referrers": [
+      "http://localhost:54197/"
+    ],
+    "failure_and_recovery": "passed for dashboard and picker"
+  },
+  "port": 54197,
+  "status": "passed",
+  "finished_at": "2026-10-23T01:45:23.216Z"
+}

@@ -347,6 +347,19 @@ body {
 .weather-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 .weather-controls .btn { padding: 0.5rem; font-size: 0.75rem; border-radius: 2px; }
 .weather-controls .btn.active { border: 2px solid white; transform: scale(0.95); font-weight: bold; }
+.weather-controls .btn-warning { background: #f59e0b; color: #1c1404; border: 1px solid #fbbf24; }
+.weather-controls .btn-warning:hover { background: #fbbf24; }
+.weather-controls .btn-danger { background: #b91c1c; color: #fff; border: 1px solid #f87171; }
+.weather-controls .btn-danger:hover { background: #dc2626; }
+.weather-controls .btn:focus-visible { outline: 3px solid #f8fafc; outline-offset: 3px; }
+.water-level-card :disabled { cursor: not-allowed; opacity: 0.55; }
+.weather-panel { width: min(310px, calc(100% - 30px)); min-width: 0; max-height: calc(100% - 30px); overflow-y: auto; }
+.weather-hint { font-size: 0.75rem; line-height: 1.45; margin: 8px 0; }
+.weather-quick-actions { display: flex; gap: 6px; margin-top: 8px; }
+.weather-quick-actions .btn { flex: 1; font-size: 0.75rem; padding: 5px 2px; }
+.weather-pause { width: 100%; margin-top: 8px; }
+.weather-map-layers { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.weather-map-layers label { display: flex; gap: 6px; align-items: center; font-size: 0.8rem; }
 
 /* Interactive Rain Mode */
 .map-rain-mode { cursor: crosshair !important; }
@@ -499,6 +512,22 @@ svg.leaflet-zoom-animated :focus,
   min-width: 65px;
   text-align: right;
 }
+.simulation-description { margin: 0 0 1rem; line-height: 1.6; }
+.water-levels-grid { margin: 1rem 0 2rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 370px), 1fr)); }
+.water-level-header { gap: 1rem; align-items: flex-start; }
+.water-level-header h3 { font-size: 1.1rem; margin: 0.3rem 0 0.6rem; }
+.water-site-name { color: var(--text-muted); font-size: 0.8rem; }
+.water-risk-badge { display: inline-block; padding: 0.25rem 0.5rem; border: 1px solid currentColor; border-radius: 4px; font-size: 0.75rem; }
+.water-measured { display: flex; flex-direction: column; gap: 0.3rem; text-align: right; font-size: 0.75rem; }
+.water-measured strong { font-size: 1.4rem; white-space: nowrap; }
+.water-level-card label { font-size: 0.85rem; color: var(--text-muted); }
+.water-slider-container { margin-top: 0.65rem; }
+.water-target-number { display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; margin-top: 0.65rem; }
+.water-target-number input { width: 90px; padding: 0.4rem; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-color); color: var(--text-main); }
+.water-target-status, .water-rule-status { font-size: 0.8rem; line-height: 1.5; }
+.water-target-status { color: var(--success); min-height: 2.4em; }
+.demo-advanced { max-width: 720px; }
+.demo-advanced summary { cursor: pointer; margin-bottom: 1rem; font-weight: 600; }
 
 /* Custom Modals */
 .modal-overlay {

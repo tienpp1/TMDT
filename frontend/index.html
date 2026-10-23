@@ -44,7 +44,7 @@
       </div>
       <nav class="sidebar-nav">
         <a href="#" data-page="dashboard" class="nav-item active"><i aria-hidden="true" class="fas fa-home"></i> Tổng quan</a>
-        <a href="#" data-page="water-levels" class="nav-item manager-only"><i aria-hidden="true" class="fas fa-water"></i> Mô phỏng thiết bị</a>
+        <a href="#" data-page="water-levels" class="nav-item simulation-manager-only"><i aria-hidden="true" class="fas fa-water"></i> Mô phỏng thiết bị</a>
         <a href="#" data-page="devices" class="nav-item"><i aria-hidden="true" class="fas fa-satellite-dish"></i> Điểm đo & Lịch sử</a>
         <a href="#" data-page="alerts" class="nav-item"><i aria-hidden="true" class="fas fa-exclamation-triangle"></i> Trung tâm Cảnh báo</a>
         <a href="#" data-page="incidents" class="nav-item"><i aria-hidden="true" class="fas fa-clipboard-list"></i> Hồ sơ Sự cố</a>
@@ -139,10 +139,29 @@
               <div class="site-map-container" style="position: relative;">
                 <!-- Weather Simulator Panel (Floating) -->
                 <div class="weather-panel" id="weather-panel">
-                  <h4><i aria-hidden="true" class="fas fa-map-marker-alt"></i> Vị trí điểm đo</h4>
-                  <p class="text-muted" style="font-size:0.8rem; margin:8px 0">Vòng tròn chỉ là vùng minh họa; mực nước được đo tại từng điểm.</p>
-                  <label style="font-size:0.8rem"><input type="checkbox" id="toggle-regions" checked onchange="app.toggleRegions(this.checked)"> Hiển thị vùng minh họa</label>
-                  <button class="btn btn-sm btn-outline manager-only" style="margin-top:10px" onclick="navigate('water-levels')">Mô phỏng thiết bị</button>
+                  <div class="manager-only">
+                    <h4><i aria-hidden="true" class="fas fa-cloud-rain"></i> Giả lập thời tiết</h4>
+                    <p class="text-muted weather-hint">Chọn cường độ rồi nhấp bản đồ để tạo vùng mưa bán kính 3 km. Đây là cường độ mô phỏng; nước dâng và rút theo vùng nguy cơ.</p>
+                    <div class="weather-controls">
+                      <button class="btn btn-sm btn-outline active" id="btn-rain-stop" onclick="app.setRainMode(null)">Tạnh Mưa</button>
+                      <button class="btn btn-sm btn-outline" id="btn-rain-5" onclick="app.setRainMode(5)">Mưa Nhỏ</button>
+                      <button class="btn btn-sm btn-warning" id="btn-rain-15" onclick="app.setRainMode(15)">Mưa Vừa</button>
+                      <button class="btn btn-sm btn-danger" id="btn-rain-30" onclick="app.setRainMode(30)">Bão Lớn</button>
+                    </div>
+                    <div class="weather-quick-actions">
+                      <button class="btn btn-sm btn-outline" onclick="app.triggerRainOnDevice(5)" title="Tạo mưa tại bãi thuộc vùng nguy cơ 5">🌧️ Bãi Đỏ</button>
+                      <button class="btn btn-sm btn-outline" onclick="app.triggerRainOnDevice(3)" title="Tạo mưa tại bãi thuộc vùng nguy cơ 3">🌧️ Bãi Vàng</button>
+                      <button class="btn btn-sm btn-outline" onclick="app.triggerRainOnDevice(1)" title="Tạo mưa tại bãi thuộc vùng nguy cơ 1">🌧️ Bãi Xanh</button>
+                    </div>
+                    <button class="btn btn-sm btn-outline weather-pause" id="btn-rain-pause" onclick="app.stopRain()">Dừng mô phỏng</button>
+                    <p id="weather-status" class="text-muted weather-hint" role="status" aria-live="polite">Đã dừng. Chưa gửi số đo mô phỏng.</p>
+                  </div>
+                  <div class="weather-map-layers">
+                    <h4><i aria-hidden="true" class="fas fa-filter"></i> Lớp Bản Đồ</h4>
+                    <label><input type="checkbox" id="toggle-regions" checked onchange="app.toggleRegions(this.checked)"> Hiển thị vùng nguy cơ</label>
+                    <p class="text-muted weather-hint">Vòng tròn là vùng minh họa. Mực nước được đo tại từng điểm.</p>
+                    <button class="btn btn-sm btn-outline simulation-manager-only" onclick="navigate('water-levels')">Mô phỏng thiết bị</button>
+                  </div>
                 </div>
                 
                 <div id="leaflet-map" style="width: 100%; height: 500px; border-radius: 4px; z-index: 1;"></div>
@@ -421,15 +440,18 @@
           <div class="page-header">
             <h2><i aria-hidden="true" class="fas fa-water" style="color: var(--primary);"></i> Mô phỏng thiết bị</h2>
           </div>
-          <p class="text-muted" style="margin-bottom:1.5rem; line-height:1.6">DỮ LIỆU MÔ PHỎNG. Mỗi lần gửi tạo một số đo qua cùng luồng kiểm tra dữ liệu thiết bị. Mặc định cần 3 mẫu liên tiếp để xác nhận cảnh báo hoặc kết thúc. Dừng gửi để kiểm tra mất kết nối sau 30 giây. Khi kiểm tra, hãy dừng bộ mô phỏng CLI cho các điểm này.</p>
-          <div class="settings-content" style="max-width:720px">
+          <p class="text-muted simulation-description">Cài đặt mức nước mục tiêu riêng cho từng bãi tại tất cả cơ sở bạn quản lý. Ngưỡng Vàng bằng 50%, ngưỡng Đỏ bằng 100% mục tiêu. Lưu mục tiêu chỉ đổi cấu hình mô phỏng và ngưỡng cảnh báo; mực nước đo được cập nhật khi có số đo tiếp theo.</p>
+          <p id="water-levels-status" class="text-muted" role="status">Đang tải các cơ sở quản lý…</p>
+          <div class="devices-grid water-levels-grid" id="water-levels-devices-grid"></div>
+          <details id="demo-advanced" class="settings-content manager-only demo-advanced">
+            <summary>Kiểm thử nâng cao: gửi số đo theo kịch bản</summary>
+            <p class="text-muted simulation-description">DỮ LIỆU MÔ PHỎNG cho cơ sở đang chọn. Mỗi lần gửi tạo một số đo qua cùng luồng kiểm tra dữ liệu thiết bị. Dừng gửi để kiểm tra mất kết nối sau 30 giây. Khi kiểm tra, hãy dừng bộ mô phỏng CLI cho các điểm này.</p>
             <div class="form-group"><label for="demo-device">Điểm đo</label><select id="demo-device"><option value="all">Tất cả điểm đo</option></select></div>
             <div class="form-group"><label for="demo-scenario">Kịch bản</label><select id="demo-scenario"><option value="normal">Bình thường / nước rút</option><option value="warning">Chạm ngưỡng cảnh báo Vàng</option><option value="critical">Chạm ngưỡng nguy hiểm Đỏ</option><option value="sensor-error">Lỗi cảm biến</option><option value="stale">Dữ liệu cũ (chỉ lịch sử)</option><option value="custom">Mực nước tự chọn</option></select></div>
             <div class="form-group"><label for="demo-level">Mực nước tự chọn (cm, chỉ dùng cho kịch bản tự chọn)</label><input type="number" id="demo-level" min="0" max="90" step="0.1" value="5"></div>
             <div class="demo-actions"><button class="btn btn-primary" onclick="sendDemoSample()">Gửi 1 mẫu</button><button class="btn btn-outline" id="demo-start" onclick="startDemo()">Chạy mỗi 5 giây</button><button class="btn btn-outline" onclick="stopDemo()">Dừng gửi</button></div>
             <p id="demo-status" role="status" style="margin-top:1rem">Đã dừng. Chưa gửi số đo.</p>
-            <div class="devices-grid" id="water-levels-devices-grid" style="margin-top:1rem"></div>
-          </div>
+          </details>
         </div>
       </div>
     </main>

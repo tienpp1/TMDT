@@ -142,6 +142,243 @@ test('demo sends one requested sample and is unavailable to staff', async () => 
   expect(samples).toEqual([{ site: 'site', payload: { scenario: 'critical', device_id: 'd' } }]);
 });
 
+test('manual target cards include every managed site without replacing the selected map devices', async () => {
+  const requested = [];
+  const ui = loadUI({ getSiteOverview: async site => {
+    requested.push(site);
+    return { devices: [{ id: 'device-' + site, name: '<b>Parking</b>', point_label: 'Bãi ' + site, is_active: 1, risk_level: 5, rule_version: 4, data_status: 'no_data', latest_quality: null, latest_level_cm: null, critical_cm: 20, warning_cm: 10, clear_cm: 7, sample_count: 3, demo_override_level: null }] };
+  } });
+  ui.run("currentSiteId='one'; currentUser={sites:[{id:'one',name:'Cơ sở Một',role:'manager'},{id:'two',name:'Cơ sở Hai',role:'manager'},{id:'staff',name:'Staff only',role:'staff'}]}; window.devicesCache=[{id:'map-only'}]");
+  await ui.run('loadWaterLevelsData()');
+  expect(requested.sort()).toEqual(['one', 'two']);
+  expect(ui.node('water-levels-devices-grid').innerHTML).toContain('Cơ sở Một');
+  expect(ui.node('water-levels-devices-grid').innerHTML).toContain('Cơ sở Hai');
+  expect(ui.node('water-levels-devices-grid').innerHTML).toContain('slider-device-two');
+  expect(ui.node('water-levels-devices-grid').innerHTML).toContain('--');
+  expect(ui.run('window.devicesCache[0].id')).toBe('map-only');
+  ui.run("updateWaterTarget('device-two', 44)");
+  await ui.run('loadWaterLevelsData()');
+  expect(ui.run("waterTargetDrafts['device-two']")).toBe(44);
+  expect(ui.node('slider-device-two').value).toBe('44');
+});
+
+test('saving a target uses its own managed site permission and rule version without injecting a reading', async () => {
+  const writes = [];
+  const ui = loadUI({ setDeviceOverride: async (id, payload) => {
+    writes.push({ id, payload });
+    return { id, override_level: payload.override_level, warning_cm: 22, critical_cm: 44, clear_cm: 13.2, sample_count: 1, rule_version: 5 };
+  }, sendDemoSample: async () => { throw new Error('target must not inject a reading'); } });
+  ui.run("currentSiteId='one'; currentUser={sites:[{id:'one',role:'staff'},{id:'two',role:'manager'}]}; manualDevicesCache=[{id:'d',site_id:'two',name:'Parking',rule_version:4,critical_cm:20,demo_override_level:null}]; updateWaterTarget('d',44)");
+  await ui.run("setWaterLevel('d')");
+  expect(writes).toEqual([{ id: 'd', payload: { override_level: 44, expected_version: 4 } }]);
+  expect(ui.run('manualDevicesCache[0].rule_version')).toBe(5);
+  expect(ui.run('manualDevicesCache[0].demo_override_level')).toBe(44);
+  expect(ui.node('status-d').textContent).toContain('44');
+  ui.run("currentUser.sites[1].role='staff'; updateWaterTarget('d',50)");
+  await ui.run("setWaterLevel('d')");
+  expect(writes).toHaveLength(1);
+});
+
+test('a saved target becomes server state so a later external update refreshes untouched controls', async () => {
+  const ui = loadUI({ setDeviceOverride: async () => ({ id: 'd', override_level: 40, critical_cm: 40, warning_cm: 20, clear_cm: 12, sample_count: 1, rule_version: 3 }) });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; manualDevicesCache=[{id:'d',site_id:'site',rule_version:2,critical_cm:20}]; updateWaterTarget('d',40)");
+  await ui.run("setWaterLevel('d')");
+  expect(ui.run("Object.hasOwn(waterTargetDrafts,'d')")).toBe(false);
+  ui.run("manualDevicesCache=[{id:'d',site_id:'site',rule_version:4,demo_override_level:60,critical_cm:60,warning_cm:30}]; renderWaterLevelsPage()");
+  expect(ui.node('slider-d').value).toBe('60');
+  expect(ui.node('warn-d').textContent).toBe('30.0 cm');
+  expect(ui.node('crit-d').textContent).toBe('60 cm');
+});
+
+test('reset preserves a newer draft entered while the override request is pending', async () => {
+  let finish;
+  const ui = loadUI({ setDeviceOverride: () => new Promise(resolve => { finish = resolve; }) });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; manualDevicesCache=[{id:'d',site_id:'site',rule_version:2,demo_override_level:40,critical_cm:40}]; updateWaterTarget('d',40)");
+  const reset = ui.run("resetWaterLevel('d')");
+  await flushTilePromises();
+  ui.run("updateWaterTarget('d',60)");
+  finish({ id: 'd', override_level: null, critical_cm: 20, warning_cm: 10, clear_cm: 7, sample_count: 3, rule_version: 3 });
+  await reset;
+  expect(ui.run("waterTargetDrafts.d")).toBe(60);
+  expect(ui.node('slider-d').value).toBe('60');
+});
+
+test('a target response updates the current cache even if a refresh replaces device objects while saving', async () => {
+  let finish;
+  const ui = loadUI({ setDeviceOverride: () => new Promise(resolve => { finish = resolve; }) });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; manualDevicesCache=[{id:'d',site_id:'site',rule_version:2,critical_cm:20}]; updateWaterTarget('d',40)");
+  const saving = ui.run("setWaterLevel('d')");
+  await flushTilePromises();
+  ui.run("manualDevicesCache=[{id:'d',site_id:'site',rule_version:2,critical_cm:20}]");
+  finish({ id: 'd', override_level: 40, critical_cm: 40, warning_cm: 20, clear_cm: 12, sample_count: 1, rule_version: 3 });
+  await saving;
+  expect(ui.run('manualDevicesCache[0].demo_override_level')).toBe(40);
+  expect(ui.run('manualDevicesCache[0].rule_version')).toBe(3);
+});
+
+test('fresh saved targets update the threshold preview when the user has no unsaved draft', () => {
+  const ui = loadUI();
+  ui.run("manualDevicesCache=[{id:'d',site_id:'site',rule_version:2,critical_cm:20,demo_override_level:null}]; renderWaterLevelsPage(); manualDevicesCache[0].demo_override_level=50; renderWaterLevelsPage()");
+  expect(ui.node('slider-d').value).toBe('50');
+  expect(ui.node('warn-d').textContent).toBe('25.0 cm');
+  expect(ui.node('crit-d').textContent).toBe('50 cm');
+});
+
+test('a target card without an override shows its actual configured critical threshold', () => {
+  const ui = loadUI();
+  ui.run("manualDevicesCache=[{id:'d',site_id:'site',rule_version:2,critical_cm:21,demo_override_level:null}]; renderWaterLevelsPage()");
+  expect(ui.node('status-d').textContent).toContain('21 cm');
+});
+
+test('inactive target cards disable their controls and reject programmatic saves and resets', async () => {
+  const writes = [];
+  const ui = loadUI({ setDeviceOverride: async (...args) => { writes.push(args); return {}; } });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; manualDevicesCache=[{id:'d',site_id:'site',is_active:0,rule_version:2,critical_cm:20}]; renderWaterLevelsPage(); updateWaterTarget('d',25)");
+  expect(ui.node('slider-d').disabled).toBe(true);
+  expect(ui.node('target-input-d').disabled).toBe(true);
+  expect(ui.node('save-water-d').disabled).toBe(true);
+  expect(ui.node('reset-water-d').disabled).toBe(true);
+  await ui.run("setWaterLevel('d')");
+  await ui.run("resetWaterLevel('d')");
+  expect(writes).toEqual([]);
+});
+
+test('rain is explicit, never overlaps steps, and clear weather drains after removing storms', async () => {
+  const requests = [], finishes = [];
+  const ui = loadUI({ demoRainStep: (site, payload) => {
+    requests.push({ site, payload });
+    return new Promise(resolve => finishes.push(resolve));
+  } });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; app.setRainMode(15)");
+  expect(requests).toHaveLength(0);
+  await ui.run('triggerRainAt(10,106)');
+  expect(requests).toEqual([{ site: 'site', payload: { events: [{ lat: 10, lng: 106, radius_m: 3000, intensity: 15 }] } }]);
+  await ui.run('runRainStep()');
+  expect(requests).toHaveLength(1);
+  ui.run('app.setRainMode(null)');
+  expect(ui.run('activeRainEvents.length')).toBe(0);
+  finishes.shift()({ readings: [], has_water: true });
+  await flushTilePromises();
+  const drain = ui.run('runRainStep()');
+  expect(requests[1]).toEqual({ site: 'site', payload: { events: [] } });
+  finishes.shift()({ readings: [], has_water: false, needs_samples: true });
+  await drain;
+  expect(ui.run('rainTimer')).not.toBe(null);
+  const finalDrain = ui.run('runRainStep()');
+  finishes.shift()({ readings: [], has_water: false, needs_samples: false });
+  await finalDrain;
+  expect(ui.run('rainTimer')).toBe(null);
+});
+
+test.each(['sendDemoSample()', 'startDemo()'])('stopping a queued %s prevents it from sending when an older rain step finishes', async action => {
+  const samples = [];
+  let finishRain;
+  const ui = loadUI({ demoRainStep: () => new Promise(resolve => { finishRain = resolve; }), sendDemoSample: async (site, payload) => { samples.push({ site, payload }); } });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; app.setRainMode(5)");
+  await ui.run('triggerRainAt(10,106)');
+  ui.node('demo-scenario').value = 'normal';
+  const queued = ui.run(action);
+  ui.run('stopDemo()');
+  finishRain({ readings: [], has_water: true });
+  await queued;
+  await flushTilePromises();
+  expect(samples).toEqual([]);
+  expect(ui.run('demoTimer')).toBe(null);
+  expect(ui.node('demo-status').textContent).toContain('Đã dừng gửi.');
+});
+
+test('switching back to weather cancels generic work queued behind the previous rain step', async () => {
+  const samples = [], rainRequests = [];
+  let finishRain;
+  const ui = loadUI({ demoRainStep: (site, payload) => {
+    rainRequests.push({ site, payload });
+    return rainRequests.length === 1 ? new Promise(resolve => { finishRain = resolve; }) : Promise.resolve({ readings: [], has_water: true });
+  }, sendDemoSample: async (site, payload) => { samples.push({ site, payload }); } });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; app.setRainMode(5)");
+  await ui.run('triggerRainAt(10,106)');
+  ui.node('demo-scenario').value = 'normal';
+  const queued = ui.run('sendDemoSample()');
+  ui.run('app.setRainMode(15)');
+  const weather = ui.run('triggerRainAt(11,107)');
+  finishRain({ readings: [], has_water: true });
+  await Promise.all([queued, weather]);
+  await flushTilePromises();
+  expect(samples).toEqual([]);
+  expect(rainRequests).toHaveLength(2);
+  expect(rainRequests[1].payload.events).toEqual([{ lat: 11, lng: 107, radius_m: 3000, intensity: 15 }]);
+});
+
+test('a stopped generic request cannot replace the stopped status when its response arrives', async () => {
+  let finish;
+  const ui = loadUI({ sendDemoSample: () => new Promise(resolve => { finish = resolve; }) });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}");
+  ui.node('demo-scenario').value = 'normal';
+  const pending = ui.run('sendDemoSample()');
+  await flushTilePromises();
+  ui.run('stopDemo()');
+  const stopped = ui.node('demo-status').textContent;
+  finish({});
+  await pending;
+  expect(ui.node('demo-status').textContent).toBe(stopped);
+});
+
+test('periodic generic samples share their active run and a stopped interval callback cannot restart it', async () => {
+  const samples = [];
+  let tick;
+  const ui = loadUI({ sendDemoSample: async (site, payload) => { samples.push({ site, payload }); } });
+  ui.context.setInterval = callback => { tick = callback; return 2; };
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}");
+  ui.node('demo-scenario').value = 'normal';
+  ui.run('startDemo()');
+  await flushTilePromises();
+  expect(samples).toHaveLength(1);
+  await tick();
+  expect(samples).toHaveLength(2);
+  ui.run('stopDemo()');
+  await tick();
+  expect(samples).toHaveLength(2);
+});
+
+test('quick rain targets risk metadata and accepts zero coordinates', async () => {
+  const requests = [];
+  const ui = loadUI({ demoRainStep: async (site, payload) => { requests.push({ site, payload }); return { readings: [], has_water: true }; } });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; latestDevicesList=[{id:'misleading',name:'Bãi Đỏ',risk_level:1,is_active:1,lat:10,lng:106},{id:'red',name:'Cổng',risk_level:5,is_active:1,lat:0,lng:0}]");
+  await ui.run('app.triggerRainOnDevice(5)');
+  expect(requests[0]).toEqual({ site: 'site', payload: { events: [{ lat: 0, lng: 0, radius_m: 3000, intensity: 30 }] } });
+});
+
+test('logout clears storms and ignores a late rain completion', async () => {
+  let finish;
+  const ui = loadUI({ demoRainStep: () => new Promise(resolve => { finish = resolve; }) });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; app.setRainMode(5)");
+  await ui.run('triggerRainAt(10,106)');
+  ui.run('showLogin()');
+  finish({ readings: [{ device_id: 'old', level_cm: 30 }], has_water: true });
+  await flushTilePromises();
+  expect(ui.run('rainTimer')).toBe(null);
+  expect(ui.run('activeRainEvents.length')).toBe(0);
+  expect(ui.run('currentSiteId')).toBe(null);
+  expect(ui.run('window.devicesCache.length')).toBe(0);
+});
+
+test('manual saves wait for an in-flight rain step and stop further simulated readings', async () => {
+  const order = [];
+  let finish;
+  const ui = loadUI({ demoRainStep: () => new Promise(resolve => { finish = resolve; }), setDeviceOverride: async (id, payload) => {
+    order.push('override');
+    return { id, override_level: payload.override_level, rule_version: 2 };
+  } });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; manualDevicesCache=[{id:'d',site_id:'site',rule_version:1,critical_cm:20}]; updateWaterTarget('d',35); app.setRainMode(5)");
+  await ui.run('triggerRainAt(10,106)');
+  const saving = ui.run("setWaterLevel('d')");
+  expect(order).toEqual([]);
+  expect(ui.run('rainTimer')).toBe(null);
+  finish({ readings: [], has_water: true });
+  await saving;
+  expect(order).toEqual(['override']);
+  expect(ui.run('activeRainEvents.length')).toBe(0);
+});
+
 test('a failed refresh exposes stale connection state without replacing a known reading', async () => {
   const ui = loadUI({ getSiteOverview: async () => { throw new Error('network'); }, getSiteAlerts: async () => [], getSiteIncidents: async () => [] });
   ui.node('connection-error').classList.add('hidden');

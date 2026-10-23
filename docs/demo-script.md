@@ -2,6 +2,10 @@
 
 Chứng minh simulator độc lập → HTTP/API → SQLite và cảnh báo → website. Mọi số đo giả lập. Không dùng số liệu/ảnh thực địa không có.
 
+## Trình diễn bằng bộ điều khiển đã khôi phục
+
+Dừng CLI. Vào **Mô phỏng thiết bị**, đặt mục tiêu riêng cho các bãi, ví dụ20/30/40cm; lưu từng bãi và chỉ ra ngưỡng vàng bằng50%, đỏ100%. Về Tổng quan, chọn Bão Lớn và tạo mưa gần các bãi. So sánh vùng Xanh/Vàng/Đỏ với mục tiêu và khoảng cách đã chọn; vùng đỏ dâng nhanh, rút chậm hơn khi các điều kiện khác giống nhau. Bấm Tạnh Mưa để quan sát nước rút, Dừng mô phỏng để ngừng số đo. Chi tiết ở [mô hình mưa](rain-simulation.md). Trước kịch bản kiểm tra mặc định bên dưới, bấm Đặt Lại ở từng bãi để trở về10/20/7cm và3mẫu.
+
 ## Chuẩn bị
 
 Theo README để cấu hình, migrate/seed DB demo và chạy backend; không seed vào DB cần giữ. Mở tài khoản manager/staff, không chiếu mật khẩu/khóa lên màn hình. Xác nhận một bãi xe, ba điểm, ngưỡng 10/20/7 cm, sample_count=3. Terminal thứ hai chạy simulator.

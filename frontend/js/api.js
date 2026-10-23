@@ -113,6 +113,12 @@ const api = {
   sendDemoSample(siteId, data) {
     return this.request(`/devices/site/${encodeURIComponent(siteId)}/demo-sample`, { method: 'POST', body: data });
   },
+  setDeviceOverride(deviceId, data) {
+    return this.request(`/devices/${encodeURIComponent(deviceId)}/override`, { method: 'POST', body: data });
+  },
+  demoRainStep(siteId, data) {
+    return this.request(`/devices/site/${encodeURIComponent(siteId)}/demo-rain-step`, { method: 'POST', body: data });
+  },
   updateRule(deviceId, data) {
     return this.request(`/devices/${deviceId}/rule`, { method: 'PATCH', body: data });
   },

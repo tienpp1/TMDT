@@ -10,6 +10,19 @@ let refreshInFlight = false;
 let sessionGeneration = 0;
 let demoTimer = null;
 let demoInFlight = false;
+let demoPending = null;
+let demoGeneration = 0;
+let rainModeIntensity = null;
+let activeRainEvents = [];
+let activeRainLayers = [];
+let rainTimer = null;
+let rainStepPromise = null;
+let rainGeneration = 0;
+let manualDevicesCache = [];
+let manualLoadPromise = null;
+let manualCardsFingerprint = '';
+let waterTargetDrafts = {};
+const manualWrites = new Set();
 let historyPage = 1;
 let adminDevicesCache = [];
 
@@ -23,6 +36,9 @@ function html(strings, ...values) {
 function trusted(markup) { return { trustedHTML: markup }; }
 function isSiteManager() {
   return !!currentUser?.sites?.some(site => site.id === currentSiteId && site.role === 'manager');
+}
+function hasManagedSites() {
+  return !!currentUser?.sites?.some(site => site.role === 'manager');
 }
 function formatTime(value) {
   if (!value) return 'Chưa có';
@@ -46,6 +62,7 @@ function updatePermissions() {
   const manager = isSiteManager();
   elements.userRole.textContent = manager ? 'Quản lý' : 'Nhân viên';
   document.querySelectorAll('.manager-only').forEach(el => el.classList.toggle('hidden', !manager));
+  document.querySelectorAll('.simulation-manager-only').forEach(el => el.classList.toggle('hidden', !hasManagedSites()));
 }
 function closeSidebar() {
   document.querySelector('.sidebar')?.classList.remove('open');
@@ -53,7 +70,7 @@ function closeSidebar() {
   document.getElementById('sidebar-backdrop')?.classList.add('hidden');
 }
 function navigate(pageId) {
-  if ((pageId === 'settings' || pageId === 'water-levels') && !isSiteManager()) pageId = 'dashboard';
+  if ((pageId === 'settings' && !isSiteManager()) || (pageId === 'water-levels' && !hasManagedSites())) pageId = 'dashboard';
   elements.navItems.forEach(item => item.classList.toggle('active', item.getAttribute('data-page') === pageId));
   elements.pages.forEach(page => page.classList.toggle('hidden', page.id !== `page-${pageId}`));
   closeSidebar();
@@ -114,10 +131,15 @@ function showLogin() {
   latestDevicesList = [];
   historyStatsCache = [];
   adminDevicesCache = [];
+  manualDevicesCache = [];
+  manualLoadPromise = null;
+  manualCardsFingerprint = '';
+  waterTargetDrafts = {};
   window.devicesCache = [];
   if (window.evtSource) window.evtSource.close();
   window.evtSource = null;
   stopDemo(false);
+  stopRainSimulation(false);
   elements.loginView.classList.remove('hidden');
   elements.appView.classList.add('hidden');
   elements.siteSelector.innerHTML = '';
@@ -200,6 +222,7 @@ elements.navItems.forEach(item => {
 
 elements.siteSelector.addEventListener('change', (e) => {
   stopDemo(false);
+  stopRainSimulation(false);
   sessionGeneration++;
   currentSiteId = e.target.value;
   latestDevicesList = [];
@@ -208,7 +231,7 @@ elements.siteSelector.addEventListener('change', (e) => {
   mapZoomed = false;
   lastRegionFingerprint = '';
   updatePermissions();
-  if (!isSiteManager()) navigate('dashboard');
+  if (!isSiteManager() && !document.getElementById('page-settings').classList.contains('hidden')) navigate('dashboard');
   pollData();
 });
 document.getElementById('menu-toggle')?.addEventListener('click', () => {
@@ -306,7 +329,7 @@ async function pollData() {
     }
     
     if (!document.getElementById('page-water-levels').classList.contains('hidden')) {
-      renderWaterLevelsPage();
+      await loadWaterLevelsData();
     }
     
     elements.lastUpdated.textContent = `Cập nhật: ${new Date().toLocaleTimeString('vi-VN')}`;
@@ -367,12 +390,16 @@ function updateRegionLayers(devices, force = false) {
       fillColor: color,
       fillOpacity: 0.22,
       radius: radiusMeters,
-      weight: 2
+      weight: 2,
+      bubblingMouseEvents: false
     }).addTo(leafletMap);
 
     circle.bindTooltip(html`<strong>${d.name}</strong><br/>Vùng minh họa ${riskText}<br/>Bán kính: ${(parseFloat(d.zone_radius_km) || 1.5).toFixed(1)} km`, { 
       direction: 'top',
       sticky: true
+    });
+    circle.on('click', event => {
+      if (rainModeIntensity !== null) window.triggerRainAt(event.latlng.lat, event.latlng.lng);
     });
 
     regionLayers.push(circle);
@@ -473,6 +500,14 @@ function initMap() {
   }).setView([10.770, 106.675], 11);
   
   addMapTiles(leafletMap, 'dashboard-map-status', 'Không tải được nền bản đồ. Điểm đo và số liệu vẫn được giữ.');
+  leafletMap.on('click', event => {
+    if (rainModeIntensity !== null) window.triggerRainAt(event.latlng.lat, event.latlng.lng);
+  });
+  if (L.DomEvent) {
+    const panel = document.getElementById('weather-panel');
+    L.DomEvent.disableClickPropagation(panel);
+    L.DomEvent.disableScrollPropagation(panel);
+  }
 
   // Multiple invalidateSize ticks to ensure container dimensions are tracked across layout passes
   [50, 200, 600, 1500].forEach(delay => {
@@ -486,14 +521,100 @@ function initMap() {
 
 
 window.app = {
+  setRainMode(intensity) {
+    if (!isSiteManager() || (intensity !== null && ![5, 15, 30].includes(intensity))) return;
+    if (intensity !== null) stopDemo(false);
+    rainModeIntensity = intensity;
+    document.getElementById('leaflet-map')?.classList.toggle('map-rain-mode', intensity !== null);
+    [null, 5, 15, 30].forEach(value => document.getElementById(value === null ? 'btn-rain-stop' : `btn-rain-${value}`)?.classList.toggle('active', value === intensity));
+    if (intensity === null) {
+      clearRainEvents();
+      setRainStatus(rainTimer ? 'Đã tạnh mưa. Nước đang rút theo vùng nguy cơ.' : 'Đã tạnh mưa. Mô phỏng đang dừng.');
+    } else {
+      setRainStatus('Đã chọn cường độ. Nhấp bản đồ, vùng nguy cơ hoặc chọn bãi để tạo mưa bán kính 3 km.');
+    }
+  },
+  triggerRainOnDevice(risk) {
+    if (!isSiteManager()) return;
+    const device = latestDevicesList.find(item => Number(item.risk_level) === Number(risk) && item.is_active !== 0 && item.lat !== null && item.lng !== null && Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng)));
+    if (!device) return showToast('Chưa có bãi hoạt động thuộc vùng nguy cơ này trên cơ sở đang chọn.', 'info');
+    if (rainModeIntensity === null) this.setRainMode(30);
+    return window.triggerRainAt(Number(device.lat), Number(device.lng));
+  },
+  stopRain: () => stopRainSimulation(),
   toggleRegions: function() {
     lastRegionFingerprint = '';
     updateRegionLayers(latestDevicesList, true);
   }
 };
-async function sendDemoSample() {
-  if (!isSiteManager() || demoInFlight || !currentSiteId) return;
-  const generation = sessionGeneration;
+function setRainStatus(message) {
+  const status = document.getElementById('weather-status');
+  if (status) status.textContent = message;
+}
+function clearRainEvents() {
+  activeRainEvents = [];
+  activeRainLayers.forEach(layer => leafletMap?.removeLayer(layer));
+  activeRainLayers = [];
+}
+function stopRainSimulation(showStatus = true) {
+  rainGeneration++;
+  if (rainTimer) clearInterval(rainTimer);
+  rainTimer = null;
+  rainModeIntensity = null;
+  clearRainEvents();
+  document.getElementById('leaflet-map')?.classList.remove('map-rain-mode');
+  [5, 15, 30].forEach(value => document.getElementById(`btn-rain-${value}`)?.classList.remove('active'));
+  document.getElementById('btn-rain-stop')?.classList.add('active');
+  if (showStatus) setRainStatus('Đã dừng mô phỏng. Không gửi thêm số đo; có thể kiểm tra mất kết nối sau 30 giây.');
+}
+window.triggerRainAt = async function(lat, lng) {
+  if (!isSiteManager() || !currentSiteId || rainModeIntensity === null || manualWrites.size) return;
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return;
+  if (activeRainEvents.length >= 20) return showToast('Tối đa 20 vùng mưa. Chọn Tạnh Mưa để tạo lại.', 'info');
+  const generation = sessionGeneration, run = rainGeneration, intensity = rainModeIntensity;
+  stopDemo(false);
+  await Promise.allSettled([demoPending, rainStepPromise].filter(Boolean));
+  if (generation !== sessionGeneration || run !== rainGeneration || !isSiteManager() || rainModeIntensity === null || manualWrites.size) return;
+  if (activeRainEvents.length >= 20) return;
+  activeRainEvents.push({ lat: Number(lat), lng: Number(lng), radius_m: 3000, intensity });
+  if (leafletMap) {
+    const color = intensity === 30 ? '#1e3a8a' : intensity === 15 ? '#3b82f6' : '#60a5fa';
+    activeRainLayers.push(L.circle([Number(lat), Number(lng)], { color, fillColor: color, fillOpacity: 0.5, radius: 3000, className: 'rain-pulse-circle', interactive: false }).addTo(leafletMap));
+  }
+  if (!rainTimer) rainTimer = setInterval(runRainStep, 1000);
+  setRainStatus(`Đang mô phỏng ${activeRainEvents.length} vùng mưa. Mực nước thay đổi theo cường độ và vùng nguy cơ.`);
+  runRainStep();
+};
+async function runRainStep() {
+  if (!rainTimer || rainStepPromise || !isSiteManager() || !currentSiteId || manualWrites.size) return;
+  const generation = sessionGeneration, run = rainGeneration, siteId = currentSiteId;
+  const pending = api.demoRainStep(siteId, { events: activeRainEvents.map(event => ({ ...event })) });
+  rainStepPromise = pending;
+  try {
+    const result = await pending;
+    if (generation !== sessionGeneration || run !== rainGeneration || siteId !== currentSiteId) return;
+    if (!activeRainEvents.length && !result.has_water && !result.needs_samples) {
+      clearInterval(rainTimer);
+      rainTimer = null;
+      setRainStatus('Nước đã rút hết. Mô phỏng đang dừng.');
+    }
+    pollData();
+  } catch (error) {
+    if (generation === sessionGeneration && run === rainGeneration) {
+      stopRainSimulation(false);
+      setRainStatus('Đã dừng do không gửi được dữ liệu mô phỏng.');
+      showToast(error.message, 'error');
+    }
+  } finally {
+    if (rainStepPromise === pending) rainStepPromise = null;
+  }
+}
+async function sendDemoSample(run = demoGeneration) {
+  if (run !== demoGeneration || !isSiteManager() || demoInFlight || !currentSiteId || manualWrites.size) return;
+  const generation = sessionGeneration, siteId = currentSiteId;
+  stopRainSimulation(false);
+  await Promise.allSettled([rainStepPromise].filter(Boolean));
+  if (generation !== sessionGeneration || run !== demoGeneration || siteId !== currentSiteId || !isSiteManager() || demoInFlight || manualWrites.size) return;
   const scenario = document.getElementById('demo-scenario').value;
   const deviceId = document.getElementById('demo-device').value;
   const payload = { scenario };
@@ -506,29 +627,34 @@ async function sendDemoSample() {
     }
   }
   demoInFlight = true;
+  const pending = api.sendDemoSample(siteId, payload);
+  demoPending = pending;
   try {
-    await api.sendDemoSample(currentSiteId, payload);
-    if (generation !== sessionGeneration) return;
+    await pending;
+    if (generation !== sessionGeneration || run !== demoGeneration || siteId !== currentSiteId) return;
     document.getElementById('demo-status').textContent = 'Đã gửi một mẫu lúc ' + new Date().toLocaleTimeString('vi-VN') + (demoTimer ? ' · Đang chạy mỗi 5 giây.' : ' · Đang dừng.');
     await pollData();
   } catch (error) {
-    if (generation === sessionGeneration) {
+    if (generation === sessionGeneration && run === demoGeneration && siteId === currentSiteId) {
       stopDemo(false);
       document.getElementById('demo-status').textContent = 'Đã dừng do không gửi được dữ liệu.';
       showToast(error.message, 'error');
     }
   } finally {
     demoInFlight = false;
+    if (demoPending === pending) demoPending = null;
   }
 }
 function startDemo() {
   if (!isSiteManager()) return;
   stopDemo(false);
-  demoTimer = setInterval(sendDemoSample, 5000);
+  const run = demoGeneration;
+  demoTimer = setInterval(() => sendDemoSample(run), 5000);
   document.getElementById('demo-start').disabled = true;
-  sendDemoSample();
+  sendDemoSample(run);
 }
 function stopDemo(showStatus = true) {
+  demoGeneration++;
   if (demoTimer) clearInterval(demoTimer);
   demoTimer = null;
   const button = document.getElementById('demo-start');
@@ -598,7 +724,10 @@ function renderDashboard(devices = [], alerts = [], incidents = []) {
       if (mapMarkers[device.id]) {
         mapMarkers[device.id].setLatLng([device.lat, device.lng]).setIcon(icon);
       } else {
-        mapMarkers[device.id] = L.marker([device.lat, device.lng], { icon }).addTo(leafletMap);
+        mapMarkers[device.id] = L.marker([device.lat, device.lng], { icon, bubblingMouseEvents: false }).addTo(leafletMap);
+        mapMarkers[device.id].on('click', event => {
+          if (rainModeIntensity !== null) window.triggerRainAt(event.latlng.lat, event.latlng.lng);
+        });
       }
       mapMarkers[device.id].bindPopup(html`<strong>${device.name}</strong><br>Mực nước: ${hasFreshLevel ? device.latest_level_cm : '--'} cm<br>${getStatusLabel(device.data_status)} · ${alertLabel}<br>Đo lúc: ${formatTime(device.latest_measured_at)}`);
     }
@@ -1499,6 +1628,52 @@ async function loadReportsData() {
 }
 
 
+async function loadWaterLevelsData() {
+  if (!hasManagedSites()) return;
+  if (manualLoadPromise) return manualLoadPromise;
+  const generation = sessionGeneration;
+  const sites = currentUser.sites.filter(site => site.role === 'manager');
+  const pending = Promise.allSettled(sites.map(async site => ({ site, overview: await api.getSiteOverview(site.id) })));
+  manualLoadPromise = pending;
+  try {
+    const results = await pending;
+    if (generation !== sessionGeneration || !currentUser) return;
+    const devices = [], failedSites = [];
+    results.forEach((result, index) => {
+      const site = sites[index];
+      if (result.status === 'fulfilled') {
+        (result.value.overview.devices || []).forEach(device => devices.push({ ...device, site_id: site.id, site_name: site.name }));
+      } else {
+        failedSites.push(site.name || site.id);
+        manualDevicesCache.filter(device => device.site_id === site.id).forEach(device => devices.push(device));
+      }
+    });
+    manualDevicesCache = devices;
+    const status = document.getElementById('water-levels-status');
+    if (status) status.textContent = failedSites.length ? 'Không tải được cơ sở: ' + failedSites.join(', ') + '. Giữ dữ liệu cũ; thử lại khi kết nối phục hồi.' : `${sites.length} cơ sở quản lý · ${devices.length} điểm đo.`;
+    renderWaterLevelsPage();
+  } finally {
+    if (manualLoadPromise === pending) manualLoadPromise = null;
+  }
+}
+function targetForDevice(device) {
+  return waterTargetDrafts[device.id] ?? device.demo_override_level ?? device.critical_cm ?? 20;
+}
+function updateWaterTarget(deviceId, value) {
+  const target = Number(value);
+  if (!Number.isFinite(target)) return;
+  waterTargetDrafts[deviceId] = target;
+  paintWaterTarget(deviceId, target);
+}
+function paintWaterTarget(deviceId, target) {
+  const slider = document.getElementById(`slider-${deviceId}`);
+  const input = document.getElementById(`target-input-${deviceId}`);
+  if (slider) slider.value = String(target);
+  if (input) input.value = String(target);
+  document.getElementById(`val-${deviceId}`).textContent = `${target} cm`;
+  document.getElementById(`warn-${deviceId}`).textContent = `${(target * 0.5).toFixed(1)} cm`;
+  document.getElementById(`crit-${deviceId}`).textContent = `${target} cm`;
+}
 function renderWaterLevelsPage() {
   const select = document.getElementById('demo-device');
   const selected = select.value;
@@ -1506,8 +1681,87 @@ function renderWaterLevelsPage() {
   select.innerHTML = '<option value="all">Tất cả điểm đo</option>' + devices.filter(d => d.is_active).map(d => html`<option value="${d.id}">${d.point_label || d.name}</option>`).join('');
   if (devices.some(d => d.id === selected)) select.value = selected;
   const grid = document.getElementById('water-levels-devices-grid');
-  grid.innerHTML = devices.map(d => html`<div class="device-card"><h3>${d.point_label || d.name}</h3><p>${d.data_status === 'online' && d.latest_level_cm !== null ? d.latest_level_cm + ' cm' : '-- cm'} · ${getStatusLabel(d.data_status)}</p><p class="text-muted">Vàng ≥ ${d.warning_cm ?? 10} cm · Đỏ ≥ ${d.critical_cm ?? 20} cm · Kết thúc &lt; ${d.clear_cm ?? 7} cm · ${d.sample_count ?? 3} mẫu liên tiếp</p></div>`).join('');
+  const fingerprint = manualDevicesCache.map(device => `${device.site_id}/${device.id}/${device.name}/${device.point_label}/${device.site_name}/${device.risk_level}/${device.is_active}`).join('|');
+  if (fingerprint !== manualCardsFingerprint || !grid.innerHTML) {
+    manualCardsFingerprint = fingerprint;
+    grid.innerHTML = manualDevicesCache.map(device => {
+      const risk = Number(device.risk_level) || 1;
+      const riskName = risk === 5 ? 'Đỏ' : risk === 3 ? 'Vàng' : 'Xanh';
+      const riskColor = risk === 5 ? 'var(--critical)' : risk === 3 ? 'var(--warning)' : 'var(--normal)';
+      const target = targetForDevice(device);
+      return html`<article class="water-level-card" id="water-card-${device.id}">
+        <div class="water-level-header"><div><p class="water-site-name">${device.site_name}</p><h3>${device.point_label || device.name}</h3><span class="water-risk-badge" style="color:${riskColor}">Vùng ${riskName} · Nguy cơ ${risk}</span></div><div class="water-measured"><span class="text-muted">Mực nước đo được</span><strong id="measured-level-${device.id}">-- cm</strong><span id="measured-status-${device.id}" class="text-muted"></span></div></div>
+        <div><label for="slider-${device.id}">Chọn mức nước mục tiêu (Ngưỡng đỉnh 100%)</label><div class="water-slider-container"><input type="range" id="slider-${device.id}" min="5" max="90" step="1" value="${target}" data-water-device="${device.id}"><span id="val-${device.id}" class="water-slider-value">${target} cm</span></div><label class="water-target-number" for="target-input-${device.id}">Mục tiêu (cm)<input type="number" id="target-input-${device.id}" min="5" max="90" step="1" value="${target}" data-water-device="${device.id}"></label></div>
+        <div class="water-level-thresholds"><div class="threshold-badge threshold-yellow"><strong>Ngưỡng Vàng (50%)</strong><span id="warn-${device.id}">${(target * 0.5).toFixed(1)} cm</span></div><div class="threshold-badge threshold-red"><strong>Ngưỡng Đỏ (100%)</strong><span id="crit-${device.id}">${target} cm</span></div></div>
+        <div class="demo-actions"><button class="btn btn-sm btn-primary" id="save-water-${device.id}" data-action="set-water-level" data-id="${device.id}">Cài Đặt Mức Nước</button><button class="btn btn-sm btn-outline" id="reset-water-${device.id}" data-action="reset-water-level" data-id="${device.id}">Đặt Lại</button></div>
+        <p id="status-${device.id}" class="water-target-status" role="status"></p><p class="text-muted water-rule-status" id="rule-status-${device.id}"></p>
+      </article>`;
+    }).join('') || '<p class="text-muted">Chưa có điểm đo tại các cơ sở bạn quản lý.</p>';
+  }
+  manualDevicesCache.forEach(device => {
+    const fresh = device.data_status === 'online' && device.latest_quality === 'ok' && device.latest_level_cm !== null && device.latest_level_cm !== undefined;
+    const measured = document.getElementById(`measured-level-${device.id}`);
+    measured.textContent = fresh ? `${device.latest_level_cm} cm` : '-- cm';
+    measured.style.color = !fresh ? 'var(--text-muted)' : device.current_alert_level === 'critical' ? 'var(--critical)' : device.current_alert_level === 'warning' ? 'var(--warning)' : 'var(--normal)';
+    document.getElementById(`measured-status-${device.id}`).textContent = getStatusLabel(device.data_status);
+    const status = document.getElementById(`status-${device.id}`);
+    status.textContent = device.demo_override_level != null ? `Đã lưu mục tiêu: ${device.demo_override_level} cm. Chờ số đo tiếp theo.` : `Đang dùng ngưỡng cấu hình (${device.critical_cm ?? 20} cm).`;
+    document.getElementById(`rule-status-${device.id}`).textContent = `Vàng ≥ ${device.warning_cm ?? 10} cm · Đỏ ≥ ${device.critical_cm ?? 20} cm · Kết thúc < ${device.clear_cm ?? 7} cm · ${device.sample_count ?? 3} mẫu liên tiếp`;
+    ['slider-', 'target-input-', 'save-water-', 'reset-water-'].forEach(prefix => {
+      document.getElementById(prefix + device.id).disabled = device.is_active === 0 || manualWrites.has(device.id);
+    });
+    if (!manualWrites.has(device.id)) {
+      paintWaterTarget(device.id, targetForDevice(device));
+    }
+  });
 }
+async function saveWaterTarget(deviceId, reset = false) {
+  const device = manualDevicesCache.find(item => item.id === deviceId);
+  if (!device || device.is_active === 0 || !currentUser?.sites?.some(site => site.id === device.site_id && site.role === 'manager') || manualWrites.has(deviceId)) return;
+  const value = reset ? null : Number(waterTargetDrafts[deviceId] ?? document.getElementById(`slider-${deviceId}`).value ?? targetForDevice(device));
+  if (!reset && (!Number.isInteger(value) || value < 5 || value > 90)) return showToast('Mục tiêu phải là số nguyên từ 5 đến 90 cm.', 'error');
+  const generation = sessionGeneration;
+  const draft = waterTargetDrafts[deviceId];
+  manualWrites.add(deviceId);
+  stopRainSimulation(false);
+  stopDemo(false);
+  document.getElementById(`save-water-${deviceId}`).disabled = true;
+  document.getElementById(`reset-water-${deviceId}`).disabled = true;
+  try {
+    await Promise.allSettled([rainStepPromise, demoPending, manualLoadPromise].filter(Boolean));
+    if (generation !== sessionGeneration || !currentUser) return;
+    const current = manualDevicesCache.find(item => item.id === deviceId);
+    if (!current || current.is_active === 0 || !currentUser.sites.some(site => site.id === current.site_id && site.role === 'manager')) return;
+    const result = await api.setDeviceOverride(deviceId, { override_level: value, expected_version: current.rule_version });
+    if (generation !== sessionGeneration || !currentUser) return;
+    const updated = manualDevicesCache.find(item => item.id === deviceId);
+    if (!updated) return;
+    Object.assign(updated, result, { demo_override_level: result.override_level });
+    if (waterTargetDrafts[deviceId] === draft) delete waterTargetDrafts[deviceId];
+    renderWaterLevelsPage();
+    paintWaterTarget(deviceId, targetForDevice(updated));
+    document.getElementById(`status-${deviceId}`).textContent = reset ? 'Đã đặt lại ngưỡng 10 / 20 cm. Chờ số đo tiếp theo.' : `Đã lưu mục tiêu ${value} cm. Mực nước đo được sẽ cập nhật khi có số đo tiếp theo.`;
+  } catch (error) {
+    if (generation === sessionGeneration) {
+      showToast(error.status === 409 ? 'Ngưỡng vừa được cập nhật ở nơi khác. Đang tải lại; giữ lựa chọn của bạn để kiểm tra và lưu lại.' : error.message, 'error');
+      if (error.status === 409) await loadWaterLevelsData();
+    }
+  } finally {
+    manualWrites.delete(deviceId);
+    if (generation === sessionGeneration) {
+      const disabled = manualDevicesCache.find(item => item.id === deviceId)?.is_active === 0;
+      ['slider-', 'target-input-', 'save-water-', 'reset-water-'].forEach(prefix => {
+        document.getElementById(prefix + deviceId).disabled = disabled;
+      });
+    }
+  }
+}
+window.setWaterLevel = deviceId => saveWaterTarget(deviceId);
+window.resetWaterLevel = deviceId => saveWaterTarget(deviceId, true);
+document.addEventListener('input', event => {
+  const deviceId = event.target.dataset?.waterDevice;
+  if (deviceId) updateWaterTarget(deviceId, event.target.value);
+});
 window.copyProvisioningKey = async function() {
   const input = document.getElementById('provisioning-key');
   try {
@@ -1546,6 +1800,8 @@ document.addEventListener('click', event => {
   if (!button) return;
   const id = button.dataset.id;
   const handlers = {
+    'set-water-level': () => window.setWaterLevel(id),
+    'reset-water-level': () => window.resetWaterLevel(id),
     'ack-alert': () => window.ackAlert(id),
     'incident-notes': () => window.openIncidentNotesModal(id),
     'assign-staff': () => window.openAssignStaffModal(id),

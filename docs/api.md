@@ -23,12 +23,14 @@ App kiểm tra Origin đối với thao tác thay đổi trạng thái; dùng JS
 | PUT/DELETE `/api/devices/:id` | Manager | Sửa/ngừng quản lý thiết bị |
 | PATCH `/api/devices/:id/rule` | Manager | Đổi luật có version |
 | POST `/api/devices/:id/rotate-key` | Manager | Đổi khóa; trả khóa mới một lần, khóa cũ hết hiệu lực |
-| POST `/api/devices/site/:siteId/demo-sample` | Manager | Một mẫu giả lập qua cùng ingestReading; giữ quy tắc ba mẫu |
+| POST `/api/devices/site/:siteId/demo-sample` | Manager | Một mẫu giả lập qua cùng ingestReading; theo sample_count của từng điểm |
+| POST `/api/devices/:id/override` | Manager đúng cơ sở | Lưu/đặt lại mục tiêu mô phỏng và ngưỡng, có expected_version |
+| POST `/api/devices/site/:siteId/demo-rain-step` | Manager | Một bước mưa/rút nước, theo vùng và cùng ingestReading |
 | GET `/api/audit/site/:siteId` | Manager | Nhật ký |
 | GET `/api/events` | Có phiên | SSE báo thay đổi; tải dữ liệu lại qua API có quyền |
 | GET `/api/reports/site/:siteId/device/:id/csv` | Thành viên đúng cơ sở | CSV; phải kiểm tra cả site và device |
 
-Các endpoint công việc/ghi chú/báo cáo hỗ trợ quản lý, không thay luồng telemetry. Điều khiển demo phải gắn nhãn mô phỏng, đi qua cùng logic cảnh báo, không bỏ quy tắc ba mẫu.
+Các endpoint công việc/ghi chú/báo cáo hỗ trợ quản lý, không thay luồng telemetry. Điều khiển demo gắn nhãn mô phỏng và đi qua cùng logic cảnh báo theo `sample_count` đã cấu hình, mặc định ba mẫu.
 
 ## Payload telemetry
 
@@ -63,8 +65,16 @@ Timestamp hơn 60 giây tương lai bị từ chối; timestamp hơn 5 giây tư
 { "warning_cm": 10, "critical_cm": 20, "clear_cm": 7, "sample_count": 3, "expected_version": 1 }
 ```
 
-Luật cần `clear_cm < warning_cm < critical_cm`, sample_count nguyên dương trong giới hạn. Version cũ trả 409; cập nhật tăng version, reset đếm và ghi audit. Ack lặp lại idempotent, không ghi đè người/thời điểm ban đầu. Ack không đặt resolved_at; chỉ ba mẫu phục hồi mới đóng đợt.
+Luật cần `clear_cm < warning_cm < critical_cm`, sample_count nguyên dương trong giới hạn. Version cũ trả 409; cập nhật tăng version, reset đếm và ghi audit. Ack lặp lại idempotent, không ghi đè người/thời điểm ban đầu. Ack không đặt resolved_at; cần đủ số mẫu phục hồi theo cấu hình mới đóng đợt.
 
 DELETE thiết bị là vô hiệu hóa (`is_active=0`), giữ lịch sử/cảnh báo/audit; PUT có thể cập nhật metadata hoặc kích hoạt lại, không dùng để bỏ kiểm tra version của luật. Readings hỗ trợ `since`, `until`, `limit` (1–2000). History-stats nhận `hours` trong 1/24/48/168 và giới hạn chuỗi hiển thị, thông báo khi bị giới hạn; CSV phải đối chiếu cùng khoảng thời gian.
 
 Hồ sơ sự cố có báo cáo, phân công, ghi chú và hoàn tất. Ghi chú ban đầu (`report`) hoặc phân công (`assignment`) không thay ghi chú kết quả (`outcome`). Chỉ người phụ trách hoặc manager được hoàn tất hồ sơ đã tiếp nhận; phải có ghi chú kết quả và không còn cảnh báo đang mở trong đợt. Hoàn tất hồ sơ không thay điều kiện mực nước của cảnh báo.
+
+## Điều khiển mục tiêu và mưa mô phỏng
+
+`POST /api/devices/:id/override` nhận `{"override_level":25,"expected_version":1}`. Mục tiêu là số từ 5 đến 90 cm; `null` đặt lại. Với mục tiêu T, lưu `demo_override_level=T`, ngưỡng vàng `0.5T`, đỏ `T`, kết thúc `0.3T`, `sample_count=1`. Đặt lại dùng 10/20/7 cm và 3 mẫu. Cập nhật nguyên tử, tăng phiên bản, reset bộ đếm, xóa đỉnh mô phỏng và ghi audit; version cũ trả 409. Thiết bị vô hiệu hóa bị từ chối. Trả HTTP 200 với `data:{id,override_level,warning_cm,critical_cm,clear_cm,sample_count,rule_version}`. Endpoint không tạo reading hoặc sửa giá trị telemetry nhận từ thiết bị.
+
+`POST /api/devices/site/:siteId/demo-rain-step` nhận `{"events":[{"lat":10.776,"lng":106.701,"radius_m":3000,"intensity":15}]}`. Tối đa 20 vùng; tọa độ hữu hạn trong miền địa lý, bán kính đúng 3000 m, cường độ chỉ 5/15/30. `events:[]` chạy một bước rút nước. Một request tương ứng một giây mô hình; không có worker chạy khi import. Các bước mưa và lưu mục tiêu cùng cơ sở được xếp tuần tự để tránh dùng mục tiêu cũ với ngưỡng mới.
+
+Trả HTTP 201 với `data:{readings:[{device_id,level_cm,...}],has_water,needs_samples}`. Điểm chưa có mực nước ngoài vùng mưa không sinh giá trị 0. Khi chủ động tạo mưa tại điểm chưa có số đo, mô hình khởi đầu từ nền giả lập 0 cm. Mỗi mẫu đi qua ingestion và logic cảnh báo hiện hành. Khi đã về 0 nhưng chưa đủ mẫu kết thúc cảnh báo, `needs_samples=true` yêu cầu gửi thêm bước rút; giao diện dừng khi cả `has_water` và `needs_samples` đều false. Thuật toán chi tiết ở [rain-simulation.md](rain-simulation.md).

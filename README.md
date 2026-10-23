@@ -33,7 +33,11 @@ npm run simulator -- --scenario rise-fall --ticks 14
 
 Simulator đọc ba khóa đã cấp từ `.env.simulator`; seed tạo khóa ngẫu nhiên cho thiết bị mới. Mỗi thiết bị gửi một mẫu mỗi5giây. Khóa cũ không thể khôi phục từ hash: quản lý có thể cấp lại trong Quản trị, sao chép khóa một lần rồi sửa cấu hình simulator. Thay `PORT` và `APP_BASE_URL` cùng nhau nếu cổng3000 đã được dùng.
 
-Trang **Mô phỏng thiết bị** của quản lý cũng có thể gửi mẫu qua cùng bộ xử lý. Bấm dừng trước khi chạy simulator độc lập để giữ kịch bản dễ quan sát. Khi không có nguồn gửi, website không tự sinh số đo hoặc đánh dấu thiết bị trực tuyến.
+Trang **Mô phỏng thiết bị** có thanh trượt riêng cho từng bãi/điểm đo thuộc các cơ sở bạn quản lý. **Cài Đặt Mức Nước** lưu mục tiêu 5–90 cm và đặt ngưỡng vàng 50%, đỏ 100%, kết thúc 30%, xác nhận sau 1 mẫu như chức năng cũ. **Đặt Lại** khôi phục 10/20/7 cm và 3 mẫu. Mực nước đo được hiển thị riêng; lưu mục tiêu không tự tạo số đo. Bộ gửi theo kịch bản vẫn ở phần **Kiểm thử nâng cao** bên dưới.
+
+Trong chú thích bản đồ **Tổng quan**, chọn **Mưa Nhỏ**, **Mưa Vừa** hoặc **Bão Lớn**, rồi nhấp bản đồ/điểm đo/vùng nguy cơ hoặc chọn nhanh **Bãi Xanh/Vàng/Đỏ**. Vùng mưa bán kính 3 km làm nước dâng khác nhau theo cường độ, khoảng cách và mức dễ ngập. **Tạnh Mưa** để nước rút theo từng vùng; **Dừng mô phỏng** dừng gửi số đo. Xem [thuật toán và cách dùng](docs/rain-simulation.md).
+
+Bấm dừng mô phỏng trên web trước khi chạy simulator độc lập để giữ kịch bản dễ quan sát. Khi không có nguồn gửi, website không tự sinh số đo hoặc đánh dấu thiết bị trực tuyến.
 
 ## Chức năng và quy tắc
 

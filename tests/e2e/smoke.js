@@ -16,6 +16,9 @@ const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmdt-e2e-'));
 const results = { started_at: new Date().toISOString(), browser: 'Chrome headless', isolated_database: true, checks: [], screenshots: [], javascript_errors: [], api_errors: [], map_tiles: { source: 'intercepted PNG fixtures', live_provider_verified: false } };
 const tilePNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 const tileReferrers = [];
+const secondarySiteId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const secondaryDeviceId = '44444444-4444-4444-8444-444444444444';
+const demoDeviceIds = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333'];
 let failTiles = false;
 let browser, server, context, currentPage;
 let baseUrl;
@@ -60,7 +63,22 @@ async function main() {
   baseUrl = 'http://localhost:' + port;
   results.port = port;
   const environment = { ...process.env, NODE_ENV: 'test', SQLITE_PATH: path.join(temporaryDir, 'browser.sqlite'), APP_BASE_URL: baseUrl, PORT: String(port), SESSION_SECRET: 'isolated-e2e-session-only', COOKIE_SECURE: 'false', DEMO_MANAGER_PASSWORD: 'manager123', DEMO_STAFF_PASSWORD: 'staff123' };
-  execFileSync(process.execPath, ['-e', "require('./backend/scripts/seed').seed({writeSimulatorEnv:false}).then(()=>require('./backend/src/db').pool.end()).catch(error=>{console.error(error.message);process.exitCode=1})"], { cwd: root, env: environment, windowsHide: true, stdio: 'pipe' });
+  const seedScript = `
+    (async()=>{
+      const db=require('./backend/src/db');
+      await require('./backend/scripts/seed').seed({writeSimulatorEnv:false});
+      const manager=(await db.query('SELECT id FROM users WHERE email=$1',['manager@example.com'])).rows[0];
+      await db.query('INSERT INTO sites(id,name,location) VALUES($1,$2,$3)',['${secondarySiteId}','Bãi xe mô phỏng B','Browser fixture only']);
+      await db.query('INSERT INTO site_users(site_id,user_id,role) VALUES($1,$2,$3)',['${secondarySiteId}',manager.id,'manager']);
+      const hash=await require('bcryptjs').hash(require('crypto').randomUUID(),4);
+      await db.query('INSERT INTO devices(id,site_id,name,point_label,key_hash,lat,lng,risk_level) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',['${secondaryDeviceId}','${secondarySiteId}','Bãi ở cơ sở B','Khu B',hash,11,107,3]);
+      await db.query('INSERT INTO alert_rules(device_id,warning_cm,critical_cm,clear_cm,sample_count) VALUES($1,10,20,7,3)',['${secondaryDeviceId}']);
+      await db.query('UPDATE devices SET risk_level=3 WHERE id=$1',['${demoDeviceIds[1]}']);
+      await db.query('UPDATE devices SET risk_level=5 WHERE id=$1',['${demoDeviceIds[2]}']);
+      await db.pool.end();
+    })().catch(error=>{console.error(error.message);process.exitCode=1});
+  `;
+  execFileSync(process.execPath, ['-e', seedScript], { cwd: root, env: environment, windowsHide: true, stdio: 'pipe' });
   let serverOutput = '';
   server = spawn(process.execPath, ['backend/src/server.js'], { cwd: root, env: environment, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   for (const stream of [server.stdout, server.stderr]) stream.on('data', chunk => { serverOutput = (serverOutput + chunk).slice(-8000); });
@@ -159,6 +177,7 @@ async function main() {
   });
   await check('manager simulator uses the shared one-sample endpoint and shows thresholds', async () => {
     await navigate(page, 'water-levels');
+    await page.locator('#demo-advanced').evaluate(element => { element.open = true; });
     await page.locator('#demo-scenario').selectOption('normal');
     await page.getByRole('button', { name: 'Gửi 1 mẫu', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#demo-status').textContent.includes('Đã gửi một mẫu'));
@@ -236,6 +255,104 @@ async function main() {
     await page.waitForFunction(id => [...document.querySelectorAll('#admin-devices-tbody tr')].some(row => row.querySelector('[data-id="' + id + '"][data-action=toggle-device]')), created.data.id);
     assert.equal(await page.evaluate(() => window.__xss), undefined);
   });
+  await check('manual target cards cover managed sites and save independently without replacing measurements or drafts', async () => {
+    await navigate(page, 'water-levels');
+    await page.locator('#water-card-' + secondaryDeviceId).waitFor();
+    const primary = demoDeviceIds[0];
+    const previous = (await overview()).devices.find(device => device.id === primary).latest_level_cm;
+    const setTarget = async (id, target) => {
+      await page.locator('#slider-' + id).evaluate((element, value) => {
+        element.value = String(value);
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+      }, target);
+      const response = page.waitForResponse(r => r.url().endsWith('/devices/' + id + '/override') && r.request().method() === 'POST');
+      await page.locator('#water-card-' + id).getByRole('button', { name: 'Cài Đặt Mức Nước', exact: false }).click();
+      assert.equal((await response).status(), 200);
+    };
+    await setTarget(primary, 25);
+    await setTarget(secondaryDeviceId, 40);
+    const first = (await overview()).devices.find(device => device.id === primary);
+    const second = (await (await context.request.get(baseUrl + '/api/sites/' + secondarySiteId + '/overview')).json()).data.devices[0];
+    assert.equal(first.demo_override_level, 25);
+    assert.equal(first.warning_cm, 12.5);
+    assert.equal(first.critical_cm, 25);
+    assert.equal(first.sample_count, 1);
+    assert.equal(first.latest_level_cm, previous, 'saving a target does not fabricate a measurement');
+    assert.equal(second.demo_override_level, 40);
+    assert.equal(second.latest_level_cm, null);
+    const external = await context.request.post(baseUrl + '/api/devices/' + primary + '/override', { data: { override_level: 30, expected_version: first.rule_version } });
+    assert.equal(external.status(), 200);
+    await page.locator('#slider-' + demoDeviceIds[1]).evaluate(element => {
+      element.value = '33';
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.evaluate(() => pollData());
+    await page.waitForFunction(id => document.getElementById('slider-' + id)?.value === '30', primary);
+    assert.equal(await page.locator('#slider-' + demoDeviceIds[1]).inputValue(), '33');
+    assert.equal(await page.locator('#slider-' + primary).inputValue(), '30', 'a saved draft cannot hide a later configuration change');
+    assert.equal(await page.locator('#val-' + primary).textContent(), '30 cm');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('#app-view:not(.hidden)').waitFor();
+    await navigate(page, 'water-levels');
+    await page.locator('#water-card-' + secondaryDeviceId).waitFor();
+    assert.equal(await page.locator('#slider-' + primary).inputValue(), '30');
+    assert.equal(await page.locator('#slider-' + secondaryDeviceId).inputValue(), '40');
+    await page.locator('.pages-container').evaluate(element => { element.scrollTop = 0; });
+    await screenshot(page, 'restored-manual-targets.png');
+    const reset = page.waitForResponse(r => r.url().endsWith('/devices/' + primary + '/override') && r.request().method() === 'POST');
+    await page.locator('#water-card-' + primary).getByRole('button', { name: 'Đặt Lại', exact: false }).click();
+    assert.equal((await reset).status(), 200);
+    const restored = (await overview()).devices.find(device => device.id === primary);
+    assert.equal(restored.demo_override_level, null);
+    assert.deepEqual([restored.warning_cm, restored.critical_cm, restored.clear_cm, restored.sample_count], [10, 20, 7, 3]);
+  });
+  await check('weather legend restores regional rise, map storms, drainage and explicit stop with site isolation', async () => {
+    for (const device of (await overview()).devices.filter(device => device.is_active)) {
+      const set = await context.request.post(baseUrl + '/api/devices/' + device.id + '/override', { data: { override_level: 20, expected_version: device.rule_version } });
+      assert.equal(set.status(), 200);
+    }
+    const zero = await context.request.post(baseUrl + '/api/devices/site/' + siteId + '/demo-sample', { data: { scenario: 'custom', level_cm: 0 } });
+    assert.equal(zero.status(), 201);
+    await navigate(page, 'dashboard');
+    await page.locator('#btn-rain-15').click();
+    const firstStep = page.waitForResponse(r => r.url().endsWith('/demo-rain-step') && r.request().method() === 'POST');
+    await page.getByRole('button', { name: /Bãi Đỏ/ }).click();
+    assert.equal((await firstStep).status(), 201);
+    await page.waitForFunction(() => latestDevicesList.length && latestDevicesList.filter(d => d.is_active).every(d => d.latest_level_cm > 0));
+    const levels = (await overview()).devices.filter(device => device.is_active).sort((a, b) => a.risk_level - b.risk_level).map(device => device.latest_level_cm);
+    assert(levels[2] > levels[1] && levels[1] > levels[0] && levels[0] > 0, 'red rises faster than yellow and green under the same storm');
+    const isolated = (await (await context.request.get(baseUrl + '/api/sites/' + secondarySiteId + '/overview')).json()).data.devices[0];
+    assert.equal(isolated.latest_level_cm, null, 'weather at site A cannot generate a measurement at site B');
+    await page.locator('#btn-rain-30').click();
+    // A real map click adds another independent3km storm; panel clicks must not do so.
+    await page.locator('#leaflet-map').click({ position: { x: 90, y: 340 } });
+    const storms = await page.locator('#leaflet-map .rain-pulse-circle').count();
+    assert.equal(storms, 2);
+    await screenshot(page, 'restored-rain-map.png');
+    const dryResponse = r => r.url().endsWith('/demo-rain-step') && r.request().method() === 'POST' && r.request().postDataJSON().events.length === 0;
+    const firstDrain = page.waitForResponse(dryResponse);
+    await page.locator('#btn-rain-stop').click();
+    await page.waitForFunction(() => !document.querySelector('#leaflet-map .rain-pulse-circle'));
+    const drained = await firstDrain;
+    assert.equal(drained.status(), 201);
+    const firstDryLevel = (await drained.json()).data.readings.find(device => device.device_id === demoDeviceIds[2]).level_cm;
+    const nextDrain = await page.waitForResponse(dryResponse);
+    const nextDryLevel = (await nextDrain.json()).data.readings.find(device => device.device_id === demoDeviceIds[2]).level_cm;
+    assert(nextDryLevel < firstDryLevel, 'Tạnh Mưa keeps the drain algorithm running');
+    await page.locator('#btn-rain-pause').click();
+    let lateSteps = 0;
+    const countSteps = request => { if (request.url().endsWith('/demo-rain-step')) lateSteps++; };
+    await pause(200);
+    page.on('request', countSteps);
+    await pause(1400);
+    page.off('request', countSteps);
+    assert.equal(lateSteps, 0, 'Dừng mô phỏng must stop generating requests');
+    await page.locator('#site-selector').selectOption(secondarySiteId);
+    await page.waitForFunction(() => currentSiteId === 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' && latestDevicesList.length === 1);
+    assert.equal(await page.locator('#leaflet-map .rain-pulse-circle').count(), 0);
+    await page.locator('#site-selector').selectOption(siteId);
+    await page.waitForFunction(id => currentSiteId === id && latestDevicesList.some(d => d.id === '11111111-1111-4111-8111-111111111111'), siteId);
+  });
   await check('mobile menu, navigation and logout are usable at 390 pixels', async () => {
     await navigate(page, 'dashboard');
     await page.setViewportSize({ width: 390, height: 844 });
@@ -246,6 +363,18 @@ async function main() {
     await screenshot(page, 'mobile-navigation.png');
     await page.locator('[data-page=dashboard]').click();
     assert.equal(await page.locator('.sidebar.open').count(), 0);
+    await page.locator('.pages-container').evaluate(element => { element.scrollTop = 0; });
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'restored controls must fit the mobile viewport');
+    await page.locator('#weather-panel').scrollIntoViewIfNeeded();
+    await page.locator('#btn-rain-5').click();
+    assert(await page.locator('#btn-rain-5').evaluate(element => element.classList.contains('active')));
+    await page.locator('#btn-rain-pause').click();
+    await screenshot(page, 'mobile-restored-weather.png');
+    await navigate(page, 'water-levels');
+    await page.locator('#water-card-' + demoDeviceIds[0]).scrollIntoViewIfNeeded();
+    const cardBox = await page.locator('#water-card-' + demoDeviceIds[0]).boundingBox();
+    assert(cardBox.x >= 0 && cardBox.x + cardBox.width <= 391);
+    await screenshot(page, 'mobile-restored-targets.png');
     await page.locator('#menu-toggle').click();
     await page.locator('#logout-btn').click();
     await page.locator('#login-view:not(.hidden)').waitFor();
@@ -257,6 +386,7 @@ async function main() {
     await login(page, 'staff@example.com', 'staff123');
     assert(!(await page.locator('[data-page=settings]').isVisible()));
     assert(!(await page.locator('[data-page=water-levels]').isVisible()));
+    assert(!(await page.locator('#btn-rain-5').isVisible()));
     assert(await page.locator('#page-dashboard').isVisible());
     await navigate(page, 'reports');
     await page.locator('#reports-devices-tbody a').first().waitFor();
