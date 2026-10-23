@@ -217,12 +217,14 @@ async function main() {
     assert((await overview()).devices.every(device => device.current_alert_level === 'critical'));
     await screenshot(page, 'alert-center.png');
   });
-  await check('manager simulator uses the shared one-sample endpoint and shows thresholds', async () => {
+  await check('manual simulator shows bay controls without the advanced scenario panel', async () => {
     await navigate(page, 'water-levels');
-    await page.locator('#demo-advanced').evaluate(element => { element.open = true; });
-    await page.locator('#demo-scenario').selectOption('normal');
-    await page.getByRole('button', { name: 'Gửi 1 mẫu', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('#demo-status').textContent.includes('Đã gửi một mẫu'));
+    await page.locator('#water-levels-devices-grid .water-level-card').first().waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#demo-advanced').count(), 0);
+    assert.equal(await page.getByText('Kiểm thử nâng cao: gửi số đo theo kịch bản', { exact: true }).count(), 0);
+    await page.locator('#water-card-' + secondaryDeviceId).waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#water-levels-devices-grid .water-level-card').count(), demoDeviceIds.length + 1);
+    await sample('normal');
     await sample('normal');
     await sample('normal');
     assert((await overview()).devices.every(device => device.current_alert_level === 'normal'));

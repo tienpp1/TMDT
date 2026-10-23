@@ -110,9 +110,6 @@ const api = {
   getHistoryStats(siteId, hours = 24) {
     return this.request(`/devices/site/${encodeURIComponent(siteId)}/history-stats?hours=${Number(hours) || 24}`);
   },
-  sendDemoSample(siteId, data) {
-    return this.request(`/devices/site/${encodeURIComponent(siteId)}/demo-sample`, { method: 'POST', body: data });
-  },
   setDeviceOverride(deviceId, data) {
     return this.request(`/devices/${encodeURIComponent(deviceId)}/override`, { method: 'POST', body: data });
   },

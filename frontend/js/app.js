@@ -10,10 +10,6 @@ let mapZoomed = false;
 let regionLayers = [];
 let refreshInFlight = false;
 let sessionGeneration = 0;
-let demoTimer = null;
-let demoInFlight = false;
-let demoPending = null;
-let demoGeneration = 0;
 let rainModeIntensity = null;
 let activeRainEvents = [];
 let activeRainLayers = [];
@@ -79,10 +75,6 @@ function updateDeviceMode(mode) {
   const simulation = currentDeviceMode === 'simulation';
   const offlineLabel = document.getElementById('kpi-offline-label');
   if (offlineLabel) offlineLabel.textContent = simulation ? 'Bãi đang tắt' : 'Mất kết nối/Lỗi';
-  const help = document.getElementById('demo-source-help');
-  if (help) help.textContent = simulation ?
-    'DỮ LIỆU MÔ PHỎNG cho cơ sở đang chọn. Mỗi lần gửi tạo một số đo. Báo ngay khi đạt ngưỡng đỏ; dừng gửi vẫn giữ bãi được bật trực tuyến. Chỉ tắt bãi trong Quản trị để chuyển ngoại tuyến.' :
-    'Gửi số đo kiểm thử cho cơ sở đang chọn. Dừng nguồn dữ liệu để kiểm tra mất kết nối sau 30 giây. Khi kiểm tra, hãy dừng bộ mô phỏng CLI cho các điểm này.';
 }
 function stoppedSourceMessage(prefix) {
   return currentDeviceMode === 'simulation' ? `${prefix} Bãi đang bật vẫn trực tuyến; chỉ chuyển ngoại tuyến khi tắt trong Quản trị.` : `${prefix} Điểm đo sẽ mất kết nối sau 30 giây nếu không có nguồn dữ liệu khác.`;
@@ -189,7 +181,6 @@ function showLogin() {
   window.devicesCache = [];
   if (window.evtSource) window.evtSource.close();
   window.evtSource = null;
-  stopDemo(false);
   stopRainSimulation(false);
   elements.loginView.classList.remove('hidden');
   elements.appView.classList.add('hidden');
@@ -272,7 +263,6 @@ elements.navItems.forEach(item => {
 });
 
 elements.siteSelector.addEventListener('change', (e) => {
-  stopDemo(false);
   stopRainSimulation(false);
   sessionGeneration++;
   currentSiteId = e.target.value;
@@ -575,7 +565,6 @@ function initMap() {
 window.app = {
   setRainMode(intensity) {
     if (!isSiteManager() || (intensity !== null && ![5, 15, 30].includes(intensity))) return;
-    if (intensity !== null) stopDemo(false);
     rainModeIntensity = intensity;
     document.getElementById('leaflet-map')?.classList.toggle('map-rain-mode', intensity !== null);
     [null, 5, 15, 30].forEach(value => document.getElementById(value === null ? 'btn-rain-stop' : `btn-rain-${value}`)?.classList.toggle('active', value === intensity));
@@ -624,8 +613,7 @@ window.triggerRainAt = async function(lat, lng) {
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return;
   if (activeRainEvents.length >= 20) return showToast('Tối đa 20 vùng mưa. Chọn Tạnh Mưa để tạo lại.', 'info');
   const generation = sessionGeneration, run = rainGeneration, intensity = rainModeIntensity;
-  stopDemo(false);
-  await Promise.allSettled([demoPending, rainStepPromise].filter(Boolean));
+  await Promise.allSettled([rainStepPromise].filter(Boolean));
   if (generation !== sessionGeneration || run !== rainGeneration || !isSiteManager() || rainModeIntensity === null || manualWrites.size) return;
   if (activeRainEvents.length >= 20) return;
   activeRainEvents.push({ lat: Number(lat), lng: Number(lng), radius_m: 3000, intensity });
@@ -661,61 +649,6 @@ async function runRainStep() {
     if (rainStepPromise === pending) rainStepPromise = null;
   }
 }
-async function sendDemoSample(run = demoGeneration) {
-  if (run !== demoGeneration || !isSiteManager() || demoInFlight || !currentSiteId || manualWrites.size) return;
-  const generation = sessionGeneration, siteId = currentSiteId;
-  stopRainSimulation(false);
-  await Promise.allSettled([rainStepPromise].filter(Boolean));
-  if (generation !== sessionGeneration || run !== demoGeneration || siteId !== currentSiteId || !isSiteManager() || demoInFlight || manualWrites.size) return;
-  const scenario = document.getElementById('demo-scenario').value;
-  const deviceId = document.getElementById('demo-device').value;
-  const payload = { scenario };
-  if (deviceId && deviceId !== 'all') payload.device_id = deviceId;
-  if (scenario === 'custom') {
-    payload.level_cm = Number(document.getElementById('demo-level').value);
-    if (!Number.isFinite(payload.level_cm) || payload.level_cm < 0 || payload.level_cm > 90) {
-      showToast('Mực nước phải nằm trong khoảng 0–90 cm.', 'error');
-      return;
-    }
-  }
-  demoInFlight = true;
-  const pending = api.sendDemoSample(siteId, payload);
-  demoPending = pending;
-  try {
-    await pending;
-    if (generation !== sessionGeneration || run !== demoGeneration || siteId !== currentSiteId) return;
-    document.getElementById('demo-status').textContent = 'Đã gửi một mẫu lúc ' + new Date().toLocaleTimeString('vi-VN') + (demoTimer ? ' · Đang chạy mỗi 5 giây.' : ' · Đang dừng.');
-    await pollData();
-  } catch (error) {
-    if (generation === sessionGeneration && run === demoGeneration && siteId === currentSiteId) {
-      stopDemo(false);
-      document.getElementById('demo-status').textContent = 'Đã dừng do không gửi được dữ liệu.';
-      showToast(error.message, 'error');
-    }
-  } finally {
-    demoInFlight = false;
-    if (demoPending === pending) demoPending = null;
-  }
-}
-function startDemo() {
-  if (!isSiteManager()) return;
-  stopDemo(false);
-  const run = demoGeneration;
-  demoTimer = setInterval(() => sendDemoSample(run), 5000);
-  document.getElementById('demo-start').disabled = true;
-  sendDemoSample(run);
-}
-function stopDemo(showStatus = true) {
-  demoGeneration++;
-  if (demoTimer) clearInterval(demoTimer);
-  demoTimer = null;
-  const button = document.getElementById('demo-start');
-  if (button) button.disabled = false;
-  if (showStatus) document.getElementById('demo-status').textContent = stoppedSourceMessage('Đã dừng gửi.');
-}
-
-
-
 function renderDashboard(devices = [], alerts = [], incidents = []) {
   window.devicesCache = devices;
   updateDeviceMode(devices.find(device => device.device_mode)?.device_mode || currentDeviceMode);
@@ -1734,11 +1667,6 @@ function paintWaterTarget(deviceId, target) {
   document.getElementById(`crit-${deviceId}`).textContent = `${target} cm`;
 }
 function renderWaterLevelsPage() {
-  const select = document.getElementById('demo-device');
-  const selected = select.value;
-  const devices = window.devicesCache || [];
-  select.innerHTML = '<option value="all">Tất cả điểm đo</option>' + devices.filter(d => d.is_active).map(d => html`<option value="${d.id}">${d.point_label || d.name}</option>`).join('');
-  if (devices.some(d => d.id === selected)) select.value = selected;
   const grid = document.getElementById('water-levels-devices-grid');
   const fingerprint = manualDevicesCache.map(device => `${device.site_id}/${device.id}/${device.name}/${device.point_label}/${device.site_name}/${device.risk_level}/${device.is_active}`).join('|');
   if (fingerprint !== manualCardsFingerprint || !grid.innerHTML) {
@@ -1785,11 +1713,10 @@ async function saveWaterTarget(deviceId, reset = false) {
   const draft = waterTargetDrafts[deviceId];
   manualWrites.add(deviceId);
   stopRainSimulation(false);
-  stopDemo(false);
   document.getElementById(`save-water-${deviceId}`).disabled = true;
   document.getElementById(`reset-water-${deviceId}`).disabled = true;
   try {
-    await Promise.allSettled([rainStepPromise, demoPending, manualLoadPromise].filter(Boolean));
+    await Promise.allSettled([rainStepPromise, manualLoadPromise].filter(Boolean));
     if (generation !== sessionGeneration || !currentUser) return;
     const current = manualDevicesCache.find(item => item.id === deviceId);
     if (!current || current.is_active === 0 || !currentUser.sites.some(site => site.id === current.site_id && site.role === 'manager')) return;

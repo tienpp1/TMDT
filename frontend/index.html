@@ -444,15 +444,6 @@
           <p class="text-muted simulation-description">Cài đặt mức nước mục tiêu riêng cho từng bãi tại tất cả cơ sở bạn quản lý. Ngưỡng Vàng bằng 50%, ngưỡng Đỏ bằng 100% mục tiêu. Lưu mục tiêu chỉ đổi cấu hình mô phỏng và ngưỡng cảnh báo; mực nước đo được cập nhật khi có số đo tiếp theo.</p>
           <p id="water-levels-status" class="text-muted" role="status">Đang tải các cơ sở quản lý…</p>
           <div class="devices-grid water-levels-grid" id="water-levels-devices-grid"></div>
-          <details id="demo-advanced" class="settings-content manager-only demo-advanced">
-            <summary>Kiểm thử nâng cao: gửi số đo theo kịch bản</summary>
-            <p id="demo-source-help" class="text-muted simulation-description">DỮ LIỆU MÔ PHỎNG cho cơ sở đang chọn. Mỗi lần gửi tạo một số đo. Báo ngay khi đạt ngưỡng đỏ; dừng gửi vẫn giữ bãi được bật trực tuyến. Chỉ tắt bãi trong Quản trị để chuyển ngoại tuyến.</p>
-            <div class="form-group"><label for="demo-device">Điểm đo</label><select id="demo-device"><option value="all">Tất cả điểm đo</option></select></div>
-            <div class="form-group"><label for="demo-scenario">Kịch bản</label><select id="demo-scenario"><option value="normal">Bình thường / nước rút</option><option value="warning">Chạm ngưỡng cảnh báo Vàng</option><option value="critical">Chạm ngưỡng nguy hiểm Đỏ</option><option value="sensor-error">Lỗi cảm biến</option><option value="stale">Dữ liệu cũ (chỉ lịch sử)</option><option value="custom">Mực nước tự chọn</option></select></div>
-            <div class="form-group"><label for="demo-level">Mực nước tự chọn (cm, chỉ dùng cho kịch bản tự chọn)</label><input type="number" id="demo-level" min="0" max="90" step="0.1" value="5"></div>
-            <div class="demo-actions"><button class="btn btn-primary" onclick="sendDemoSample()">Gửi 1 mẫu</button><button class="btn btn-outline" id="demo-start" onclick="startDemo()">Chạy mỗi 5 giây</button><button class="btn btn-outline" onclick="stopDemo()">Dừng gửi</button></div>
-            <p id="demo-status" role="status" style="margin-top:1rem">Đã dừng. Chưa gửi số đo.</p>
-          </details>
         </div>
       </div>
     </main>

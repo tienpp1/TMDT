@@ -129,19 +129,6 @@ test('a device creation response arriving after logout cannot reveal its key', a
   expect(ui.node('modal-provisioning').classList.contains('active')).toBe(false);
 });
 
-test('demo sends one requested sample and is unavailable to staff', async () => {
-  const samples = [];
-  const ui = loadUI({ sendDemoSample: async (site, payload) => { samples.push({ site, payload }); } });
-  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'staff'}]}");
-  ui.node('demo-scenario').value = 'critical';
-  ui.node('demo-device').value = 'd';
-  await ui.run('sendDemoSample()');
-  expect(samples).toHaveLength(0);
-  ui.run("currentUser.sites[0].role='manager'");
-  await ui.run('sendDemoSample()');
-  expect(samples).toEqual([{ site: 'site', payload: { scenario: 'critical', device_id: 'd' } }]);
-});
-
 test('manual target cards include every managed site without replacing the selected map devices', async () => {
   const requested = [];
   const ui = loadUI({ getSiteOverview: async site => {
@@ -167,7 +154,7 @@ test('saving a target uses its own managed site permission and rule version with
   const ui = loadUI({ setDeviceOverride: async (id, payload) => {
     writes.push({ id, payload });
     return { id, override_level: payload.override_level, warning_cm: 22, critical_cm: 44, clear_cm: 13.2, sample_count: 1, rule_version: 5 };
-  }, sendDemoSample: async () => { throw new Error('target must not inject a reading'); } });
+  } });
   ui.run("currentSiteId='one'; currentUser={sites:[{id:'one',role:'staff'},{id:'two',role:'manager'}]}; manualDevicesCache=[{id:'d',site_id:'two',name:'Parking',rule_version:4,critical_cm:20,demo_override_level:null}]; updateWaterTarget('d',44)");
   await ui.run("setWaterLevel('d')");
   expect(writes).toEqual([{ id: 'd', payload: { override_level: 44, expected_version: 4 } }]);
@@ -268,75 +255,6 @@ test('rain is explicit, never overlaps steps, and clear weather drains after rem
   finishes.shift()({ readings: [], has_water: false, needs_samples: false });
   await finalDrain;
   expect(ui.run('rainTimer')).toBe(null);
-});
-
-test.each(['sendDemoSample()', 'startDemo()'])('stopping a queued %s prevents it from sending when an older rain step finishes', async action => {
-  const samples = [];
-  let finishRain;
-  const ui = loadUI({ demoRainStep: () => new Promise(resolve => { finishRain = resolve; }), sendDemoSample: async (site, payload) => { samples.push({ site, payload }); } });
-  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; app.setRainMode(5)");
-  await ui.run('triggerRainAt(10,106)');
-  ui.node('demo-scenario').value = 'normal';
-  const queued = ui.run(action);
-  ui.run('stopDemo()');
-  finishRain({ readings: [], has_water: true });
-  await queued;
-  await flushTilePromises();
-  expect(samples).toEqual([]);
-  expect(ui.run('demoTimer')).toBe(null);
-  expect(ui.node('demo-status').textContent).toContain('Đã dừng gửi.');
-});
-
-test('switching back to weather cancels generic work queued behind the previous rain step', async () => {
-  const samples = [], rainRequests = [];
-  let finishRain;
-  const ui = loadUI({ demoRainStep: (site, payload) => {
-    rainRequests.push({ site, payload });
-    return rainRequests.length === 1 ? new Promise(resolve => { finishRain = resolve; }) : Promise.resolve({ readings: [], has_water: true });
-  }, sendDemoSample: async (site, payload) => { samples.push({ site, payload }); } });
-  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}; app.setRainMode(5)");
-  await ui.run('triggerRainAt(10,106)');
-  ui.node('demo-scenario').value = 'normal';
-  const queued = ui.run('sendDemoSample()');
-  ui.run('app.setRainMode(15)');
-  const weather = ui.run('triggerRainAt(11,107)');
-  finishRain({ readings: [], has_water: true });
-  await Promise.all([queued, weather]);
-  await flushTilePromises();
-  expect(samples).toEqual([]);
-  expect(rainRequests).toHaveLength(2);
-  expect(rainRequests[1].payload.events).toEqual([{ lat: 11, lng: 107, radius_m: 3000, intensity: 15 }]);
-});
-
-test('a stopped generic request cannot replace the stopped status when its response arrives', async () => {
-  let finish;
-  const ui = loadUI({ sendDemoSample: () => new Promise(resolve => { finish = resolve; }) });
-  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}");
-  ui.node('demo-scenario').value = 'normal';
-  const pending = ui.run('sendDemoSample()');
-  await flushTilePromises();
-  ui.run('stopDemo()');
-  const stopped = ui.node('demo-status').textContent;
-  finish({});
-  await pending;
-  expect(ui.node('demo-status').textContent).toBe(stopped);
-});
-
-test('periodic generic samples share their active run and a stopped interval callback cannot restart it', async () => {
-  const samples = [];
-  let tick;
-  const ui = loadUI({ sendDemoSample: async (site, payload) => { samples.push({ site, payload }); } });
-  ui.context.setInterval = callback => { tick = callback; return 2; };
-  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}");
-  ui.node('demo-scenario').value = 'normal';
-  ui.run('startDemo()');
-  await flushTilePromises();
-  expect(samples).toHaveLength(1);
-  await tick();
-  expect(samples).toHaveLength(2);
-  ui.run('stopDemo()');
-  await tick();
-  expect(samples).toHaveLength(2);
 });
 
 test('quick rain targets risk metadata and accepts zero coordinates', async () => {
@@ -470,13 +388,11 @@ test('manual virtual cards display projected zero and the immediate red notifica
   expect(ui.node('rule-status-d').textContent).not.toContain('3 mẫu liên tiếp');
 });
 
-test('stopping a virtual source explains that enabled bays remain online', () => {
+test('stopping simulated rain explains that enabled bays remain online', () => {
   const ui = loadUI();
-  ui.run("currentDeviceMode='simulation'; stopRainSimulation(); stopDemo()");
+  ui.run("currentDeviceMode='simulation'; stopRainSimulation()");
   expect(ui.node('weather-status').textContent).not.toContain('30 giây');
-  expect(ui.node('demo-status').textContent).not.toContain('30 giây');
   expect(ui.node('weather-status').textContent).toContain('trực tuyến');
-  expect(ui.node('demo-status').textContent).toContain('trực tuyến');
 });
 
 test('different device timestamps keep continuous individual series and only real sensor errors produce gaps', () => {
