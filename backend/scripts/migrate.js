@@ -10,7 +10,8 @@ async function migrate() {
     const db=await dbModule.getDb();
     await db.exec(schema);
     const additions={
-      devices:{demo_override_level:'NUMERIC',lat:'REAL',lng:'REAL',zone_radius_km:'REAL DEFAULT 1.5',risk_level:'INTEGER DEFAULT 1'},
+      devices:{demo_override_level:'NUMERIC',lat:'REAL',lng:'REAL',zone_radius_km:'REAL DEFAULT 1.5',risk_level:'INTEGER DEFAULT 1',deleted_at:'TEXT'},
+      readings:{warning_cm_snapshot:'NUMERIC',critical_cm_snapshot:'NUMERIC',rule_version_snapshot:'INTEGER'},
       incidents:{device_id:'TEXT REFERENCES devices(id)',title:'TEXT',reported_by:'TEXT REFERENCES users(id)',manager_note:'TEXT'},
       incident_notes:{kind:"TEXT NOT NULL DEFAULT 'outcome'"}
     };

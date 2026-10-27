@@ -23,6 +23,8 @@ let waterTargetDrafts = {};
 const manualWrites = new Set();
 let historyPage = 1;
 let adminDevicesCache = [];
+let archiveInFlight = false;
+let reportsRequestVersion = 0;
 
 // Every substitution in HTML templates is text unless explicitly trusted UI markup.
 function escapeHTML(value) {
@@ -46,6 +48,23 @@ function formatTime(value) {
 }
 function readingLevel(reading) {
   return reading.quality === 'ok' && reading.level_cm !== null && reading.level_cm !== undefined && Number.isFinite(Number(reading.level_cm)) ? Number(reading.level_cm) : null;
+}
+function waterReportInfo(reading, rule = {}) {
+  const numeric = value => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+  const snapshot = numeric(reading.warning_cm_snapshot) && numeric(reading.critical_cm_snapshot) && Number(reading.warning_cm_snapshot) < Number(reading.critical_cm_snapshot);
+  const warning = snapshot ? Number(reading.warning_cm_snapshot) : numeric(reading.warning_cm) ? Number(reading.warning_cm) : numeric(rule.warning_cm) ? Number(rule.warning_cm) : null;
+  const critical = snapshot ? Number(reading.critical_cm_snapshot) : numeric(reading.critical_cm) ? Number(reading.critical_cm) : numeric(rule.critical_cm) ? Number(rule.critical_cm) : null;
+  const level = readingLevel(reading);
+  const code = level === null || level < 0 || level > 90 || warning === null || warning < 0 || critical === null || critical > 90 || warning >= critical ? 'unknown' : level >= critical ? 'critical' : level >= warning ? 'warning' : 'normal';
+  return { code, label: { normal:'OK', warning:'Cảnh báo', critical:'Nguy hiểm', unknown:'Không xác định' }[code], warning, critical,
+    source: reading.threshold_source_label || (snapshot || reading.threshold_source === 'snapshot' ? 'Lưu cùng số đo (lúc nhận)' : 'Ngưỡng hiện tại (bản ghi cũ)'),
+    quality: reading.quality === 'ok' ? 'Hợp lệ' : reading.quality === 'sensor_error' ? 'Lỗi cảm biến' : 'Không xác định' };
+}
+function formatReportTime(value) {
+  if (!value) return 'Chưa có';
+  const normalized = /^\d{4}-\d{2}-\d{2} \d/.test(value) ? value.replace(' ', 'T') + 'Z' : value;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? 'Không xác định' : new Intl.DateTimeFormat('vi-VN', {timeZone:'Asia/Ho_Chi_Minh',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(date);
 }
 function isSimulationDevice(device) {
   return (device?.device_mode || currentDeviceMode) === 'simulation';
@@ -174,6 +193,7 @@ function showLogin() {
   latestDevicesList = [];
   historyStatsCache = [];
   adminDevicesCache = [];
+  closeModal('modal-archive-device');
   manualDevicesCache = [];
   manualLoadPromise = null;
   manualCardsFingerprint = '';
@@ -1083,6 +1103,42 @@ window.confirmDeleteDevice = async function() {
   }
 };
 
+window.openArchiveDeviceModal = function(deviceId) {
+  if (!isSiteManager() || archiveInFlight) return;
+  const device = adminDevicesCache.find(item => item.id === deviceId);
+  if (!device) return;
+  document.getElementById('archive-device-id').value = device.id;
+  document.getElementById('archive-device-name').textContent = device.name;
+  openModal('modal-archive-device');
+};
+window.confirmArchiveDevice = async function() {
+  if (!isSiteManager() || archiveInFlight) return;
+  const id = document.getElementById('archive-device-id').value;
+  if (!adminDevicesCache.some(device => device.id === id)) return;
+  const generation = sessionGeneration, siteId = currentSiteId;
+  archiveInFlight = true;
+  const button = document.getElementById('confirm-archive-device');
+  button.disabled = true;
+  try {
+    await api.archiveDevice(id);
+    if (generation !== sessionGeneration || siteId !== currentSiteId) return;
+    closeModal('modal-archive-device');
+    reportsRequestVersion++;
+    delete waterTargetDrafts[id];
+    manualDevicesCache = manualDevicesCache.filter(device => device.id !== id);
+    manualCardsFingerprint = '';
+    showToast('Đã xóa bãi khỏi danh sách vận hành. Lịch sử được giữ lại.');
+    await loadAdminData();
+    await pollData();
+    await loadWaterLevelsData();
+  } catch (error) {
+    if (generation === sessionGeneration && siteId === currentSiteId) showToast('Không xóa được bãi: ' + error.message, 'error');
+  } finally {
+    archiveInFlight = false;
+    button.disabled = false;
+  }
+};
+
 window.toggleDeviceStatus = async function(deviceId) {
   if (!isSiteManager()) return;
   try {
@@ -1314,7 +1370,7 @@ function filteredHistoryDevices() {
 window.filterHistoryDisplay = function() {
   const selectedId = document.getElementById('history-device-select')?.value || 'all';
   const devices = filteredHistoryDevices().filter(device => selectedId === 'all' || device.id === selectedId);
-  const readings = devices.flatMap(device => device.readings.map(reading => ({ ...reading, device_id: device.id, device_name: device.name, warning_cm: device.warning_cm, critical_cm: device.critical_cm }))).sort((a,b) => new Date(b.measured_at) - new Date(a.measured_at));
+  const readings = devices.flatMap(device => device.readings.map(reading => ({ warning_cm: device.warning_cm, critical_cm: device.critical_cm, ...reading, device_id: device.id, device_name: device.name }))).sort((a,b) => new Date(b.measured_at) - new Date(a.measured_at));
   const goodLevels = readings.map(readingLevel).filter(level => level !== null);
   const latest = devices.map(device => {
     const live = latestDevicesList.find(item => item.id === device.id);
@@ -1342,7 +1398,7 @@ window.filterHistoryDisplay = function() {
   const start = (historyPage - 1) * 50;
   readings.slice(start, start + 50).forEach((reading, index) => {
     const level = readingLevel(reading);
-    const status = level === null ? 'Không có số đo hợp lệ' : (level >= (reading.critical_cm ?? 20) ? 'NGUY HIỂM ĐỎ' : (level >= (reading.warning_cm ?? 10) ? 'CẢNH BÁO VÀNG' : 'Chưa vượt ngưỡng'));
+    const status = waterReportInfo(reading).label;
     const previous = readings.slice(start + index + 1).find(item => item.device_id === reading.device_id);
     const previousLevel = previous ? readingLevel(previous) : null;
     const trend = level === null || previousLevel === null ? '--' : (level > previousLevel ? '↗ Dâng lên' : (level < previousLevel ? '↘ Rút xuống' : '→ Ổn định'));
@@ -1383,13 +1439,15 @@ window.exportHistoryCSV = function() {
   const selectedId = document.getElementById('history-device-select')?.value || 'all';
   const quote = value => {
     let text = String(value ?? '');
-    if (/^[=+@-]/.test(text)) text = "'" + text;
+    if (/^[\s\uFEFF]*[=+@-]|^[\t\r\n]/.test(text)) text = "'" + text;
     return '"' + text.replace(/"/g, '""') + '"';
   };
-  const rows = [['Thời gian đo', 'Điểm đo', 'Mực nước (cm)', 'Chất lượng', 'Chỉ lịch sử']];
-  filteredHistoryDevices().filter(device => selectedId === 'all' || device.id === selectedId).forEach(device => device.readings.forEach(reading => rows.push([
-    formatTime(reading.measured_at), device.name, readingLevel(reading) ?? '', reading.quality === 'sensor_error' ? 'Lỗi cảm biến' : 'Tốt', reading.history_only ? 'Có' : 'Không'
-  ])));
+  const rows = [['Thời gian đo (UTC+7)', 'Điểm đo', 'Mực nước (cm)', 'Trạng thái mực nước', 'Ngưỡng vàng (cm)', 'Ngưỡng đỏ (cm)', 'Chất lượng số đo', 'Chỉ lịch sử', 'Nguồn ngưỡng']];
+  const entries = filteredHistoryDevices().filter(device => selectedId === 'all' || device.id === selectedId).flatMap(device => device.readings.map(reading => ({device,reading}))).sort((a,b)=>new Date(a.reading.measured_at)-new Date(b.reading.measured_at));
+  entries.forEach(({device,reading}) => {
+    const status = waterReportInfo(reading,device);
+    rows.push([formatReportTime(reading.measured_at), device.name, readingLevel(reading) ?? '', status.label, status.warning ?? '', status.critical ?? '', status.quality, reading.history_only ? 'Có' : 'Không', status.source]);
+  });
   if (rows.length === 1) { showToast('Chưa có dữ liệu để xuất.', 'info'); return; }
   const content = '\uFEFF' + rows.map(row => row.map(quote).join(',')).join('\r\n');
   const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
@@ -1513,10 +1571,11 @@ function renderAdminDevices(devices) {
         <td>${d.warning_cm ?? 10}</td>
         <td>${d.critical_cm ?? 20}</td>
         <td>
-          <div style="display:flex; gap:6px;">
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
             <button class="btn btn-sm btn-outline" data-action="edit-device" data-id="${d.id}" title="Chỉnh sửa thông số điểm đo"><i aria-hidden="true" class="fas fa-edit"></i> Sửa</button>
             <button class="btn btn-sm btn-outline" data-action="rotate-key" data-id="${d.id}">Đổi khóa</button>
             ${trusted(d.is_active ? html`<button class="btn btn-sm btn-outline" data-action="delete-device" data-id="${d.id}">Vô hiệu hóa</button>` : html`<button class="btn btn-sm btn-outline" data-action="toggle-device" data-id="${d.id}">Kích hoạt lại</button>`)}
+            <button class="btn btn-sm btn-danger" data-action="archive-device" data-id="${d.id}">Xóa bãi</button>
           </div>
         </td>
       </tr>
@@ -1594,28 +1653,39 @@ window.toggleUserStatus = async function(userId, currentStatus) {
 // Reports Logic
 async function loadReportsData() {
   if (!currentSiteId) return;
-  const generation = sessionGeneration;
+  const generation = sessionGeneration, siteId = currentSiteId;
+  const requestVersion = ++reportsRequestVersion;
+  const range = document.getElementById('reports-time-range')?.value || '24';
   try {
     const [kpi, overview] = await Promise.all([
-      api.request(`/reports/site/${encodeURIComponent(currentSiteId)}/kpi`), api.getSiteOverview(currentSiteId)
+      api.request(`/reports/site/${encodeURIComponent(siteId)}/kpi`), api.getSiteOverview(siteId)
     ]);
-    if (generation !== sessionGeneration) return;
+    if (requestVersion !== reportsRequestVersion || generation !== sessionGeneration || siteId !== currentSiteId || range !== (document.getElementById('reports-time-range')?.value || '24')) return;
     document.getElementById('kpi-avg-resolution').textContent = Math.round(kpi.avg_resolution_minutes) || 0;
     const devices = overview.devices || [];
     const tbody = document.getElementById('reports-devices-tbody');
-    tbody.innerHTML = '';
+    tbody.innerHTML = devices.length ? '' : '<tr><td colspan="6">Chưa có bãi để báo cáo.</td></tr>';
+    const from = [1,24,48,168].includes(Number(range)) ? '?from=' + encodeURIComponent(new Date(Date.now()-Number(range)*3600000).toISOString()) : '';
     devices.forEach(d => {
+      const level = displayedLevel(d);
+      const status = waterReportInfo({quality:d.latest_quality,level_cm:level},d);
+      const label = d.is_active === 0 ? 'Đã tắt' : d.level_source === 'simulation_baseline' ? 'Chưa có số đo' : status.label;
+      const color = {normal:'var(--normal)',warning:'var(--warning)',critical:'var(--critical)',unknown:'var(--text-muted)'}[d.is_active === 0 ? 'unknown' : status.code];
       tbody.innerHTML += html`
         <tr>
-          <td>${d.name} (${d.point_label})</td>
+          <td>${d.name} (${d.point_label || 'Điểm đo'})</td>
+          <td>${level === null ? '--' : level.toFixed(1)}</td>
+          <td>${d.warning_cm ?? '--'} / ${d.critical_cm ?? '--'}</td>
+          <td><strong style="color:${color}">${label}</strong></td>
+          <td>${formatReportTime(d.latest_measured_at)}</td>
           <td>
-            <a href="/api/reports/site/${encodeURIComponent(currentSiteId)}/device/${encodeURIComponent(d.id)}/csv" class="btn btn-sm btn-outline">Tải CSV</a>
+            <a href="/api/reports/site/${encodeURIComponent(siteId)}/device/${encodeURIComponent(d.id)}/csv${from}" class="btn btn-sm btn-outline">Tải CSV</a>
           </td>
         </tr>
       `;
     });
   } catch (err) {
-    document.getElementById('reports-devices-tbody').innerHTML = '<tr><td colspan="2">Không tải được báo cáo. Vui lòng thử lại.</td></tr>';
+    if (requestVersion === reportsRequestVersion && generation === sessionGeneration && siteId === currentSiteId) document.getElementById('reports-devices-tbody').innerHTML = '<tr><td colspan="6">Không tải được báo cáo. Vui lòng thử lại.</td></tr>';
   }
 }
 
@@ -1796,6 +1866,7 @@ document.addEventListener('click', event => {
     'take-incident': () => window.assignIncident(id),
     'edit-device': () => window.openEditDeviceModal(id),
     'rotate-key': () => window.openRotateKeyModal(id),
+    'archive-device': () => window.openArchiveDeviceModal(id),
     'delete-device': () => {
       const device = adminDevicesCache.find(d => d.id === id);
       if (device) window.openDeleteDeviceModal(id, device.name);

@@ -437,6 +437,59 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('#kpi-total-devices').textContent === '3' && document.querySelector('#kpi-active-alerts').textContent === '0');
     await screenshot(page, 'virtual-reactivated-no-alerts.png');
   });
+  await check('live reports and CSV follow rising and falling thresholds and preserve earlier rule snapshots', async () => {
+    const target=demoDeviceIds[0];
+    const configure=async value=>{
+      const device=(await overview()).devices.find(d=>d.id===target);
+      const response=await context.request.post(baseUrl+'/api/devices/'+target+'/override',{data:{override_level:value,expected_version:device.rule_version}});
+      assert.equal(response.status(),200);
+    };
+    await configure(10);
+    await navigate(page,'reports');
+    const row=page.locator('#reports-devices-tbody tr').filter({has:page.locator('a[href*="device/'+target+'/csv"]')});
+    for(const [level,label] of [[2,'OK'],[5,'Cảnh báo'],[10,'Nguy hiểm'],[7,'Cảnh báo'],[2,'OK']]){
+      const response=await context.request.post(baseUrl+'/api/devices/site/'+siteId+'/demo-sample',{data:{device_id:target,scenario:'custom',level_cm:level}});
+      assert.equal(response.status(),201);
+      await page.evaluate(()=>loadReportsData());
+      await page.waitForFunction(({id,label})=>[...document.querySelectorAll('#reports-devices-tbody tr')].some(row=>row.querySelector('a[href*="device/'+id+'/csv"]') && row.cells[3]?.textContent.trim()===label),{id:target,label});
+      assert.equal((await row.locator('td').nth(3).textContent()).trim(),label);
+    }
+    await configure(30);
+    await page.evaluate(()=>loadReportsData());
+    const downloadPromise=page.waitForEvent('download');
+    await row.getByRole('link',{name:'Tải CSV',exact:true}).click();
+    const download=await downloadPromise;
+    const body=fs.readFileSync(await download.path(),'utf8');
+    assert(body.startsWith('\uFEFF'));
+    const rows=body.trim().split('\r\n').map(line=>[...line.matchAll(/"((?:[^"]|"")*)"/g)].map(match=>match[1].replace(/""/g,'"')));
+    const header=rows[0],levelColumn=header.indexOf('Mực nước (cm)'),statusColumn=header.indexOf('Trạng thái mực nước'),warningColumn=header.indexOf('Ngưỡng cảnh báo (cm)'),criticalColumn=header.indexOf('Ngưỡng nguy hiểm (cm)');
+    assert(levelColumn>=0 && statusColumn>=0 && warningColumn>=0 && criticalColumn>=0);
+    const timeline=rows.slice(1).filter(row=>row[warningColumn]==='5' && row[criticalColumn]==='10').slice(-5);
+    assert.deepEqual(timeline.map(row=>[Number(row[levelColumn]),row[statusColumn]]),[[2,'OK'],[5,'Cảnh báo'],[10,'Nguy hiểm'],[7,'Cảnh báo'],[2,'OK']]);
+    await screenshot(page,'readable-live-reports.png');
+  });
+  await check('manager can cancel then archive a bay while its history remains available', async () => {
+    const response=await context.request.post(baseUrl+'/api/devices/site/'+siteId,{data:{name:'Bãi sẽ xóa',point_label:'Lịch sử được giữ'}});
+    assert.equal(response.status(),201);
+    const device=(await response.json()).data;
+    assert.equal((await context.request.post(baseUrl+'/api/devices/site/'+siteId+'/demo-sample',{data:{device_id:device.id,scenario:'custom',level_cm:18}})).status(),201);
+    await navigate(page,'settings'); await page.evaluate(()=>loadAdminData());
+    const button=page.locator('[data-action=archive-device][data-id="'+device.id+'"]');
+    await button.click();
+    assert.equal(await page.locator('#archive-device-name').textContent(),'Bãi sẽ xóa');
+    await page.locator('#modal-archive-device.active').getByRole('button',{name:'Hủy',exact:true}).click();
+    assert.equal(await button.count(),1);
+    await button.click(); await screenshot(page,'archive-bay-confirmation.png');
+    const archived=page.waitForResponse(r=>r.url().endsWith('/devices/'+device.id+'/archive') && r.request().method()==='POST');
+    await page.locator('#confirm-archive-device').click(); assert.equal((await archived).status(),200);
+    await page.waitForFunction(id=>!document.querySelector('[data-action=archive-device][data-id="'+id+'"]'),device.id);
+    assert(!(await overview()).devices.some(d=>d.id===device.id));
+    await navigate(page,'reports'); await page.evaluate(()=>loadReportsData());
+    assert(!(await page.locator('#reports-devices-tbody').textContent()).includes('Bãi sẽ xóa'));
+    const history=await context.request.get(baseUrl+'/api/reports/site/'+siteId+'/device/'+device.id+'/csv');
+    assert.equal(history.status(),200); assert((await history.text()).includes('18'));
+    await screenshot(page,'archived-bay-removed.png');
+  });
   await check('mobile menu, navigation and logout are usable at 390 pixels', async () => {
     await navigate(page, 'dashboard');
     await page.setViewportSize({ width: 390, height: 844 });

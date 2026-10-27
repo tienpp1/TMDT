@@ -77,6 +77,8 @@ body {
 }
 .btn-primary { background: var(--primary); color: white; }
 .btn-primary:hover { background: var(--primary-hover); }
+.btn-danger { background: #b91c1c; color: #fff; border: 1px solid #ef4444; }
+.btn-danger:hover { background: #dc2626; }
 .btn-full { width: 100%; }
 .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-main); }
 .btn-outline:hover { background: var(--surface-hover); }
@@ -528,6 +530,8 @@ svg.leaflet-zoom-animated :focus,
 .water-target-status { color: var(--success); min-height: 2.4em; }
 .alerts-filter-label { display: flex; align-items: center; gap: 0.75rem; font-size: 0.85rem; color: var(--text-muted); margin-top: 0.75rem; }
 .alerts-filter-label select { padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px; color: var(--text-main); background: var(--surface); max-width: 100%; }
+.table-responsive { max-width: 100%; overflow-x: auto; }
+#reports-devices-tbody .btn { white-space: nowrap; }
 
 /* Custom Modals */
 .modal-overlay {

@@ -20,7 +20,7 @@ router.get('/:id/overview', requireSiteMember, async (req, res, next) => {
     if (!site) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Không tìm thấy cơ sở' } });
     const result = await db.query(`SELECT d.id,d.name,d.point_label,d.is_active,d.last_seen,d.last_fresh_received_at,d.latest_measured_at,d.latest_quality,d.latest_level_cm,d.current_alert_level,d.demo_override_level,d.lat,d.lng,d.zone_radius_km,d.risk_level,r.warning_cm,r.critical_cm,r.clear_cm,r.sample_count,r.version AS rule_version,
       (SELECT received_at FROM readings WHERE device_id=d.id AND history_only=0 ORDER BY julianday(received_at) DESC,rowid DESC LIMIT 1) AS latest_received_at
-      FROM devices d LEFT JOIN alert_rules r ON r.device_id=d.id WHERE d.site_id=$1 ORDER BY d.name`, [req.params.id]);
+      FROM devices d LEFT JOIN alert_rules r ON r.device_id=d.id WHERE d.site_id=$1 AND d.deleted_at IS NULL ORDER BY d.name`, [req.params.id]);
     const now = Date.now(), offlineAfter = Number(process.env.DEVICE_OFFLINE_AFTER_MS) || 30000;
     const device_mode = getDeviceMode(), simulation = device_mode === 'simulation';
     const devices = result.rows.map(device => {

@@ -1,0 +1,112 @@
+{
+  "started_at": "2026-10-27T07:42:34.235Z",
+  "browser": "Chrome headless",
+  "isolated_database": true,
+  "checks": [
+    {
+      "name": "manager dashboard starts with three points and no fabricated readings",
+      "status": "passed"
+    },
+    {
+      "name": "map tiles send origin referrer, fail gracefully and recover without losing device markers",
+      "status": "passed"
+    },
+    {
+      "name": "enabled virtual bays stay online while idle without inventing readings or timestamps",
+      "status": "passed"
+    },
+    {
+      "name": "yellow raises no alarm; only current red notifies and leaving red clears it",
+      "status": "passed"
+    },
+    {
+      "name": "critical dashboard renders real chart and current sensor quality",
+      "status": "passed"
+    },
+    {
+      "name": "alert acknowledgement preserves critical level and active episode",
+      "status": "passed"
+    },
+    {
+      "name": "manual simulator shows bay controls without the advanced scenario panel",
+      "status": "passed"
+    },
+    {
+      "name": "history chart, range selector and CSV download work",
+      "status": "passed"
+    },
+    {
+      "name": "device creation renders hostile names as text and shows a key only once",
+      "status": "passed"
+    },
+    {
+      "name": "manual target cards cover managed sites and save independently without replacing measurements or drafts",
+      "status": "passed"
+    },
+    {
+      "name": "weather legend restores regional rise, map storms, drainage and explicit stop with site isolation",
+      "status": "passed"
+    },
+    {
+      "name": "Admin off freezes a bay during rain, removes its alarm and reactivation restores online",
+      "status": "passed"
+    },
+    {
+      "name": "live reports and CSV follow rising and falling thresholds and preserve earlier rule snapshots",
+      "status": "passed"
+    },
+    {
+      "name": "manager can cancel then archive a bay while its history remains available",
+      "status": "passed"
+    },
+    {
+      "name": "mobile menu, navigation and logout are usable at 390 pixels",
+      "status": "passed"
+    },
+    {
+      "name": "staff receives clean dashboard, reports and no administration or simulator",
+      "status": "passed"
+    },
+    {
+      "name": "backend outage displays connection failure and preserves previous values",
+      "status": "passed"
+    }
+  ],
+  "screenshots": [
+    "artifacts/e2e-bay-reports/screenshots/virtual-idle-no-alerts.png",
+    "artifacts/e2e-bay-reports/screenshots/desktop-critical-dashboard.png",
+    "artifacts/e2e-bay-reports/screenshots/alert-center.png",
+    "artifacts/e2e-bay-reports/screenshots/device-simulator.png",
+    "artifacts/e2e-bay-reports/screenshots/restored-manual-targets.png",
+    "artifacts/e2e-bay-reports/screenshots/restored-rain-map.png",
+    "artifacts/e2e-bay-reports/screenshots/virtual-admin-off.png",
+    "artifacts/e2e-bay-reports/screenshots/virtual-reactivated-no-alerts.png",
+    "artifacts/e2e-bay-reports/screenshots/readable-live-reports.png",
+    "artifacts/e2e-bay-reports/screenshots/archive-bay-confirmation.png",
+    "artifacts/e2e-bay-reports/screenshots/archived-bay-removed.png",
+    "artifacts/e2e-bay-reports/screenshots/mobile-navigation.png",
+    "artifacts/e2e-bay-reports/screenshots/mobile-restored-weather.png",
+    "artifacts/e2e-bay-reports/screenshots/mobile-restored-targets.png",
+    "artifacts/e2e-bay-reports/screenshots/staff-reports.png"
+  ],
+  "javascript_errors": [],
+  "api_errors": [],
+  "map_tiles": {
+    "source": "intercepted PNG fixtures",
+    "live_provider_verified": false,
+    "http_status_cases": [
+      200,
+      403
+    ],
+    "failure_payload": "valid PNG",
+    "requests": 192,
+    "referrers": [
+      "http://localhost:60562/"
+    ],
+    "failure_and_recovery": "passed for dashboard and picker"
+  },
+  "device_mode": "simulation",
+  "port": 60562,
+  "status": "passed",
+  "finished_at": "2026-10-27T07:43:00.506Z"
+}

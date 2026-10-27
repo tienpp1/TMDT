@@ -104,6 +104,9 @@ const api = {
   deleteDevice(deviceId) {
     return this.request(`/devices/${deviceId}`, { method: 'DELETE' });
   },
+  archiveDevice(deviceId) {
+    return this.request(`/devices/${encodeURIComponent(deviceId)}/archive`, { method: 'POST', body: {} });
+  },
   rotateDeviceKey(deviceId) {
     return this.request(`/devices/${encodeURIComponent(deviceId)}/rotate-key`, { method: 'POST' });
   },

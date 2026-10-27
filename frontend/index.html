@@ -348,15 +348,28 @@
           </div>
           
           <h3>Tải dữ liệu đo</h3>
+          <p class="text-muted simulation-description">Trạng thái mực nước cập nhật cùng số đo: OK → Cảnh báo → Nguy hiểm và giảm lại theo ngưỡng. “Hợp lệ” là chất lượng số đo, không phải mức an toàn.</p>
+          <label class="alerts-filter-label" for="reports-time-range">Khoảng thời gian CSV
+            <select id="reports-time-range" onchange="loadReportsData()">
+              <option value="1">1 giờ gần nhất</option><option value="24" selected>24 giờ gần nhất</option><option value="48">48 giờ gần nhất</option><option value="168">7 ngày gần nhất</option><option value="all">Toàn bộ lịch sử</option>
+            </select>
+          </label>
+          <p class="text-muted simulation-description">CSV chốt dữ liệu tại lúc tải, dùng giờ Việt Nam (UTC+7). Tải lại để lấy số đo mới. Bản ghi cũ chưa lưu ngưỡng được ghi rõ là đối chiếu ngưỡng hiện tại.</p>
+          <div class="table-responsive">
           <table class="data-table">
             <thead>
               <tr>
                 <th>Thiết bị</th>
+                <th>Mực nước (cm)</th>
+                <th>Ngưỡng Vàng / Đỏ (cm)</th>
+                <th>Trạng thái mực nước</th>
+                <th>Thời gian đo (UTC+7)</th>
                 <th>Thao tác</th>
               </tr>
             </thead>
             <tbody id="reports-devices-tbody"></tbody>
           </table>
+          </div>
         </div>
         <div id="page-settings" class="page hidden">
           <div class="page-header">
@@ -555,6 +568,24 @@
       <div class="modal-footer">
         <button class="btn btn-sm btn-outline" onclick="closeModal('modal-delete-device')">Hủy</button>
         <button class="btn btn-sm btn-danger" onclick="confirmDeleteDevice()">Vô hiệu hóa</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-archive-device" class="modal-overlay">
+    <div class="modal-dialog" style="max-width:480px;">
+      <div class="modal-header">
+        <h3>Xóa bãi</h3>
+        <button class="modal-close" onclick="closeModal('modal-archive-device')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="archive-device-id">
+        <p>Xóa bãi <strong id="archive-device-name"></strong> khỏi danh sách vận hành?</p>
+        <p class="text-muted">Bãi ngừng nhận số đo và không còn xuất hiện trên bản đồ, mô phỏng và báo cáo hiện tại. Lịch sử số đo, cảnh báo và hồ sơ sự cố được giữ lại. Không thể kích hoạt lại bằng nút Quản trị.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('modal-archive-device')">Hủy</button>
+        <button id="confirm-archive-device" class="btn btn-danger" onclick="confirmArchiveDevice()">Xóa bãi</button>
       </div>
     </div>
   </div>

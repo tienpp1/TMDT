@@ -45,7 +45,11 @@ Bấm dừng mô phỏng trên web trước khi chạy simulator độc lập đ
 
 - Đăng nhập, đăng xuất, quản lý và nhân viên có quyền theo cơ sở; tài khoản bị khóa mất quyền ngay ở yêu cầu API tiếp theo.
 - Tổng quan, chất lượng dữ liệu, biểu đồ, lịch sử1/24/48/168giờ, cảnh báo, hồ sơ sự cố và xuấtCSV theo quyền.
-- Quản lý tạo/cập nhật/vô hiệu hóa điểm đo, cấp lại khóa, chỉnh ngưỡng có kiểm tra phiên bản, quản lý tài khoản và xem nhật ký.
+- Quản lý tạo/cập nhật/vô hiệu hóa điểm đo, cấp lại khóa, chỉnh ngưỡng có kiểm tra phiên bản, quản lý tài khoản và xem nhật ký. **Xóa bãi** là thao tác riêng có xác nhận: loại khỏi danh sách vận hành và ngừng nhận số đo; giữ lịch sử/hồ sơ/audit, không thể kích hoạt lại bằng nút Quản trị.
+
+Trang **Báo cáo** hiển thị trực tiếp mực nước, ngưỡng Vàng/Đỏ, trạng thái và thời điểm đo. CSV theo khoảng thời gian được chọn, có giờ Việt Nam UTC+7, trạng thái **OK / Cảnh báo / Nguy hiểm** bên cạnh mực nước; chất lượng số đo là cột riêng. Đạt ngưỡng vàng là Cảnh báo, đạt ngưỡng đỏ là Nguy hiểm; khi rút nước trạng thái giảm theo ngưỡng, độc lập với ACK. Lỗi cảm biến không được ghi là OK. CSV là bản chốt lúc tải, cần tải lại để lấy số đo mới.
+
+Số đo mới lưu ngưỡng và phiên bản tại lúc nhận, nên thay cấu hình sau đó không đổi phân loại của các số đo này. Bản ghi cũ chưa có ngưỡng dùng cấu hình hiện tại và được ghi rõ nguồn, không khẳng định đó là ngưỡng lịch sử. CSV đầy đủ ở Báo cáo không cắt ngầm 1.000 dòng; CSV ở Lịch sử vẫn theo tập hiển thị tối đa 2.000 mẫu mỗi điểm và thông báo giới hạn. Xem [hợp đồng báo cáo](docs/api.md#báo-cáo-mực-nước-và-csv).
 - Trong chế độ mô phỏng: vàng để theo dõi, đạt ngưỡng đỏ tạo một cảnh báo cho bãi, xuống dưới đỏ thì kết thúc. Trong chế độ telemetry: mặc định3mẫu liên tiếp, cảnh báo10cm, mức cao20cm, kết thúc dưới7cm. Xác nhận tiếp nhận không tự kết thúc cảnh báo.
 - Bản tin quá15giây hoặc không mới hơn mẫu hiện tại chỉ vào lịch sử; mẫu tương lai5–60giây cũng chỉ vào lịch sử; quá60giây bị từ chối. Khoảng gián đoạn trên30giây đặt lại bộ đếm. Chế độ telemetry hiển thị mất kết nối sau30giây không nhận dữ liệu; bãi ảo chỉ ngoại tuyến khi bị tắt trong Quản trị.
 - `sensor_error` đi cùng `level_cm: null`, không được biểu diễn thành mực nước0. Mực nước hợp lệ0–90cm theo giả định cảm biến H100cm, khoảng cách10–100cm.

@@ -57,7 +57,7 @@ async function ingestReading(body, now = Date.now()) {
   try {
     await client.query('BEGIN IMMEDIATE'); transaction = true;
     const state = (await client.query('SELECT * FROM devices WHERE id = $1', [device_id])).rows[0];
-    if (!state || !state.is_active) fail(401, 'UNAUTHORIZED', 'Thiết bị không hoạt động');
+    if (!state || !state.is_active || state.deleted_at) fail(401, 'UNAUTHORIZED', 'Thiết bị không hoạt động');
     const existing = (await client.query('SELECT * FROM readings WHERE device_id = $1 AND message_id = $2', [device_id, message_id])).rows[0];
     if (existing) {
       const identical = parseTime(existing.measured_at) === measuredTime && existing.quality === quality && (existing.level_cm === null ? level_cm === null : existing.level_cm === level_cm);
@@ -66,12 +66,14 @@ async function ingestReading(body, now = Date.now()) {
       return { duplicate: true, id: existing.id, received_at: existing.received_at, history_only: Boolean(existing.history_only) };
     }
     const history_only = measuredTime <= parseTime(state.latest_measured_at) || now - measuredTime > (Number(process.env.READING_FRESHNESS_MS) || 15000) || measuredTime - now > 5000;
+    // Capture the rule that was in effect when the server received this row,
+    // including late/error rows. Never replace a duplicate's original snapshot.
+    const rule = (await client.query('SELECT * FROM alert_rules WHERE device_id = $1', [device_id])).rows[0];
     const readingId = crypto.randomUUID();
-    await client.query(`INSERT INTO readings (id, device_id, message_id, measured_at, received_at, level_cm, quality, history_only) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [readingId, device_id, message_id, measured_at, received_at, level_cm, quality, history_only ? 1 : 0]);
+    await client.query(`INSERT INTO readings (id, device_id, message_id, measured_at, received_at, level_cm, quality, history_only, warning_cm_snapshot, critical_cm_snapshot, rule_version_snapshot) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [readingId, device_id, message_id, measured_at, received_at, level_cm, quality, history_only ? 1 : 0, rule?.warning_cm ?? null, rule?.critical_cm ?? null, rule?.version ?? null]);
     if (history_only) {
       await client.query('UPDATE devices SET last_seen = $1 WHERE id = $2', [received_at, device_id]);
     } else {
-      const rule = (await client.query('SELECT * FROM alert_rules WHERE device_id = $1', [device_id])).rows[0];
       if (!rule) fail(409, 'RULE_REQUIRED', 'Điểm đo chưa có cấu hình cảnh báo');
       let { warning_count = 0, critical_count = 0, clear_count = 0, current_alert_level = 'normal', active_episode_id } = state;
       if (quality === 'sensor_error' || measuredTime - parseTime(state.latest_measured_at) > 30000 || now - parseTime(state.last_seen) > 30000) warning_count = critical_count = clear_count = 0;
@@ -135,18 +137,18 @@ router.post('/', async (req, res, next) => {
     if (!key || typeof key !== 'string' || key.length > 256) fail(401, 'UNAUTHORIZED', 'Thiếu hoặc sai khóa thiết bị');
     const deviceId = req.body && req.body.device_id;
     if (typeof deviceId !== 'string') fail(400, 'BAD_REQUEST', 'Thiếu định danh thiết bị');
-    const matches = async d => d && d.is_active && typeof d.key_hash === 'string' && d.key_hash.startsWith('$2') && await bcrypt.compare(key, d.key_hash);
+    const matches = async d => d && d.is_active && !d.deleted_at && typeof d.key_hash === 'string' && d.key_hash.startsWith('$2') && await bcrypt.compare(key, d.key_hash);
     const separator = key.indexOf('.');
     if (separator > 0) {
-      const credentialDevice = (await db.query('SELECT id,key_hash,is_active FROM devices WHERE id=$1', [key.slice(0, separator)])).rows[0];
+      const credentialDevice = (await db.query('SELECT id,key_hash,is_active,deleted_at FROM devices WHERE id=$1', [key.slice(0, separator)])).rows[0];
       if (!await matches(credentialDevice)) fail(401, 'UNAUTHORIZED', 'Thiếu hoặc sai khóa thiết bị');
       if (credentialDevice.id !== deviceId) fail(403, 'DEVICE_MISMATCH', 'Khóa không thuộc thiết bị được khai báo');
     } else {
-      const target = (await db.query('SELECT id,key_hash,is_active FROM devices WHERE id=$1', [deviceId])).rows[0];
+      const target = (await db.query('SELECT id,key_hash,is_active,deleted_at FROM devices WHERE id=$1', [deviceId])).rows[0];
       if (!await matches(target)) {
         // Compatibility for the three legacy demo credentials; new credentials carry an ID.
         const legacyIds = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333'];
-        const devices = (await db.query('SELECT id,key_hash,is_active FROM devices WHERE id IN ($1,$2,$3) AND id<>$4', [...legacyIds, deviceId])).rows;
+        const devices = (await db.query('SELECT id,key_hash,is_active,deleted_at FROM devices WHERE id IN ($1,$2,$3) AND id<>$4', [...legacyIds, deviceId])).rows;
         for (const other of devices) if (await matches(other)) fail(403, 'DEVICE_MISMATCH', 'Khóa không thuộc thiết bị được khai báo');
         fail(401, 'UNAUTHORIZED', 'Thiếu hoặc sai khóa thiết bị');
       }

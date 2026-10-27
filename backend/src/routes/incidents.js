@@ -44,7 +44,7 @@ router.post('/site/:siteId/report', requireAuth, requireSiteMember, async (req, 
     await client.query('BEGIN');
 
     if(device_id){
-      const target=await client.query('SELECT id FROM devices WHERE id=$1 AND site_id=$2',[device_id,req.params.siteId]);
+      const target=await client.query('SELECT id FROM devices WHERE id=$1 AND site_id=$2 AND deleted_at IS NULL',[device_id,req.params.siteId]);
       if(!target.rows.length){await client.query('ROLLBACK');return res.status(404).json({error:{code:'NOT_FOUND',message:'Điểm đo không thuộc cơ sở'}});}
     }
 

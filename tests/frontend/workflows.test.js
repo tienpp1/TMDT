@@ -88,6 +88,62 @@ test('staff report downloads use the member overview rather than administration'
   expect(ui.node('reports-devices-tbody').innerHTML).toContain('/api/reports/site/site/device/d/csv');
 });
 
+test('water report follows both threshold boundaries and falling water without treating sensor quality as safety', () => {
+  const ui = loadUI();
+  expect(ui.run("[2,5,10,7,2].map(level=>waterReportInfo({quality:'ok',level_cm:level},{warning_cm:5,critical_cm:10}).label)")).toEqual(['OK','Cảnh báo','Nguy hiểm','Cảnh báo','OK']);
+  expect(ui.run("waterReportInfo({quality:'sensor_error',level_cm:null},{warning_cm:5,critical_cm:10}).label")).toBe('Không xác định');
+  expect(ui.run("waterReportInfo({quality:'ok',level_cm:12,warning_cm_snapshot:5,critical_cm_snapshot:10},{warning_cm:20,critical_cm:40}).label")).toBe('Nguy hiểm');
+});
+
+test('live reports refresh rising and falling levels and show the measured time and thresholds', async () => {
+  let level = 2;
+  const ui = loadUI({ request: async () => ({ avg_resolution_minutes: 0 }), getSiteOverview: async () => ({ device_mode:'simulation', devices:[{id:'d',name:'Bãi thử',point_label:'Cổng',is_active:1,data_status:'online',latest_quality:'ok',latest_level_cm:level,display_level_cm:level,warning_cm:5,critical_cm:10,latest_measured_at:'2026-10-27T07:00:00Z'}] }) });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'staff'}]}");
+  for (const [value,label] of [[2,'OK'],[5,'Cảnh báo'],[10,'Nguy hiểm'],[7,'Cảnh báo'],[2,'OK']]) {
+    level=value; await ui.run('loadReportsData()');
+    expect(ui.node('reports-devices-tbody').innerHTML).toContain(label);
+    expect(ui.node('reports-devices-tbody').innerHTML).toContain('5 / 10');
+    expect(ui.node('reports-devices-tbody').innerHTML).toContain('27/10/2026');
+  }
+});
+
+test('an older live report response cannot overwrite a newer danger reading', async () => {
+  let finishOld, count=0;
+  const overview=level=>({devices:[{id:'d',name:'Bãi thử',is_active:1,latest_quality:'ok',display_level_cm:level,warning_cm:5,critical_cm:10}]});
+  const ui=loadUI({request:async()=>({avg_resolution_minutes:0}),getSiteOverview:()=>++count===1?new Promise(resolve=>{finishOld=resolve;}):Promise.resolve(overview(12))});
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'staff'}]}");
+  const older=ui.run('loadReportsData()'); await ui.run('loadReportsData()');
+  expect(ui.node('reports-devices-tbody').innerHTML).toContain('Nguy hiểm');
+  finishOld(overview(2)); await older;
+  expect(ui.node('reports-devices-tbody').innerHTML).toContain('Nguy hiểm');
+});
+
+test('history CSV includes per-reading water status and frozen thresholds separately from quality', async () => {
+  const ui = loadUI(); let downloaded;
+  ui.context.URL = class extends URL { static createObjectURL(blob) { downloaded=blob; return 'blob:csv'; } static revokeObjectURL() {} };
+  ui.run("historyStatsCache=[{id:'d',name:'Bãi thử',warning_cm:20,critical_cm:40,readings:[{measured_at:new Date().toISOString(),quality:'ok',level_cm:12,warning_cm_snapshot:5,critical_cm_snapshot:10}]}]; exportHistoryCSV()");
+  const text = await downloaded.text();
+  expect(text).toContain('Trạng thái mực nước');
+  expect(text).toContain('Nguy hiểm');
+  expect(text).toContain('Hợp lệ');
+  expect(text).toContain('"5","10"');
+});
+
+test('archive action requires manager permission and ignores a response after logout', async () => {
+  let finish, calls=0;
+  const ui = loadUI({ archiveDevice: () => { calls++; return new Promise(resolve=>{finish=resolve;}); } });
+  ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'staff'}]}; adminDevicesCache=[{id:'d',name:'Bãi thử'}]");
+  await ui.run("openArchiveDeviceModal('d'); confirmArchiveDevice()");
+  expect(calls).toBe(0);
+  ui.run("currentUser.sites[0].role='manager'; openArchiveDeviceModal('d')");
+  expect(ui.node('archive-device-name').textContent).toBe('Bãi thử');
+  const pending=ui.run('confirmArchiveDevice()');
+  expect(calls).toBe(1);
+  ui.run('showLogin()'); finish({success:true}); await pending;
+  expect(ui.node('modal-archive-device').classList.contains('active')).toBe(false);
+  expect(ui.node('admin-devices-tbody').innerHTML).toBe('');
+});
+
 test('new device key is shown once and is removed when its dialog closes', async () => {
   const ui = loadUI({ addDevice: async () => ({ id: 'new-device', key: 'one-time-secret' }) });
   ui.run("currentSiteId='site'; currentUser={sites:[{id:'site',role:'manager'}]}");

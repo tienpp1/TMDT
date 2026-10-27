@@ -6,8 +6,9 @@ const { requireAuth, requireSiteMember, requireSiteManager } = require('../middl
 const { ingestReading } = require('./telemetry');
 const { rainStep } = require('../lib/rain-simulation');
 const { isSimulationMode } = require('../lib/device-mode');
+const { decorateReading } = require('../lib/reading-report');
 const router = express.Router();
-const DEVICE_FIELDS = 'd.id,d.site_id,d.name,d.point_label,d.is_active,d.last_seen,d.last_fresh_received_at,d.latest_measured_at,d.latest_quality,d.latest_level_cm,d.current_alert_level,d.demo_override_level,d.created_at,d.lat,d.lng,d.zone_radius_km,d.risk_level';
+const DEVICE_FIELDS = 'd.id,d.site_id,d.name,d.point_label,d.is_active,d.deleted_at,d.last_seen,d.last_fresh_received_at,d.latest_measured_at,d.latest_quality,d.latest_level_cm,d.current_alert_level,d.demo_override_level,d.created_at,d.lat,d.lng,d.zone_radius_km,d.risk_level';
 const RULE_FIELDS = 'r.warning_cm,r.critical_cm,r.clear_cm,r.sample_count,r.version AS rule_version';
 const rainPeaks = new Map();
 const rainLevels = new Map();
@@ -35,6 +36,11 @@ async function closeDisabledDevice(client, id) {
 function clearSimulationState(site, id) {
   rainPeaks.get(site)?.delete(id);
   rainLevels.get(site)?.delete(id);
+}
+async function operationalDevice(client, id) {
+  const device = (await client.query(`SELECT ${DEVICE_FIELDS} FROM devices d WHERE d.id=$1 AND d.deleted_at IS NULL`, [id])).rows[0];
+  if (!device) bad('Không tìm thấy điểm đo', 404, 'NOT_FOUND');
+  return device;
 }
 async function reconcileSimulationRule(client, id, rule) {
   if (!isSimulationMode()) return;
@@ -67,16 +73,18 @@ function metadata(body, existing = {}) {
   }
   return value;
 }
-const checkDeviceMembership = async (req, res, next) => {
+const deviceMembership = (includeDeleted = false) => async (req, res, next) => {
   try {
-    const device = (await db.query('SELECT site_id FROM devices WHERE id=$1', [req.params.id])).rows[0];
+    const device = (await db.query(`SELECT site_id FROM devices WHERE id=$1${includeDeleted ? '' : ' AND deleted_at IS NULL'}`, [req.params.id])).rows[0];
     if (!device) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Không tìm thấy điểm đo' } });
     req.params.siteId = device.site_id; next();
   } catch (error) { next(error); }
 };
+const checkDeviceMembership = deviceMembership();
+const checkHistoricalDeviceMembership = deviceMembership(true);
 
 router.get('/site/:siteId', requireAuth, requireSiteMember, async (req, res, next) => {
-  try { res.json({ data: (await db.query(`SELECT ${DEVICE_FIELDS},${RULE_FIELDS} FROM devices d LEFT JOIN alert_rules r ON r.device_id=d.id WHERE d.site_id=$1 ORDER BY d.name`, [req.params.siteId])).rows }); }
+  try { res.json({ data: (await db.query(`SELECT ${DEVICE_FIELDS},${RULE_FIELDS} FROM devices d LEFT JOIN alert_rules r ON r.device_id=d.id WHERE d.site_id=$1 AND d.deleted_at IS NULL ORDER BY d.name`, [req.params.siteId])).rows }); }
   catch (error) { next(error); }
 });
 router.post('/site/:siteId', requireAuth, requireSiteManager, async (req, res, next) => {
@@ -98,7 +106,7 @@ router.put('/:id', requireAuth, checkDeviceMembership, requireSiteManager, async
     if (['warning_cm', 'critical_cm', 'clear_cm', 'sample_count', 'expected_version'].some(key => req.body[key] !== undefined)) bad('Dùng API PATCH rule với expected_version để thay đổi ngưỡng');
     const info = await simulationQueue(req.params.siteId, async () => {
       const updated = await transaction(async client => {
-        const current = (await client.query(`SELECT ${DEVICE_FIELDS} FROM devices d WHERE d.id=$1`, [req.params.id])).rows[0];
+        const current = await operationalDevice(client, req.params.id);
         const updated = metadata(req.body, current);
         await client.query('UPDATE devices SET name=$1,point_label=$2,lat=$3,lng=$4,zone_radius_km=$5,risk_level=$6,is_active=$7 WHERE id=$8', [updated.name, updated.point_label, updated.lat, updated.lng, updated.zone_radius_km, updated.risk_level, updated.is_active, req.params.id]);
         if (!updated.is_active) { await closeDisabledDevice(client, req.params.id); updated.current_alert_level = 'normal'; }
@@ -115,7 +123,7 @@ router.delete('/:id', requireAuth, checkDeviceMembership, requireSiteManager, as
   try {
     await simulationQueue(req.params.siteId, async () => {
       await transaction(async client => {
-        const current = (await client.query(`SELECT ${DEVICE_FIELDS} FROM devices d WHERE d.id=$1`, [req.params.id])).rows[0];
+        const current = await operationalDevice(client, req.params.id);
         // Disabling preserves measurements and closes notification eligibility.
         await client.query('UPDATE devices SET is_active=0 WHERE id=$1', [req.params.id]);
         await closeDisabledDevice(client, req.params.id);
@@ -124,7 +132,26 @@ router.delete('/:id', requireAuth, checkDeviceMembership, requireSiteManager, as
       clearSimulationState(req.params.siteId, req.params.id);
     });
     publish(req); res.json({ data: { success: true, is_active: 0 } });
-  } catch (error) { next(error); }
+  } catch (error) { respondError(error, res, next); }
+});
+router.post('/:id/archive', requireAuth, checkHistoricalDeviceMembership, requireSiteManager, async (req, res, next) => {
+  try {
+    const data = await simulationQueue(req.params.siteId, async () => {
+      const deleted = await transaction(async client => {
+        const current = (await client.query(`SELECT ${DEVICE_FIELDS} FROM devices d WHERE d.id=$1`, [req.params.id])).rows[0];
+        if (!current) bad('Không tìm thấy điểm đo', 404, 'NOT_FOUND');
+        if (current.deleted_at) return { id: current.id, is_active: 0, deleted_at: current.deleted_at };
+        const deleted_at = new Date().toISOString();
+        await client.query('UPDATE devices SET is_active=0,deleted_at=$1 WHERE id=$2', [deleted_at, req.params.id]);
+        await closeDisabledDevice(client, req.params.id);
+        await client.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,old_values,new_values) VALUES ($1,$2,'ARCHIVE_DEVICE','devices',$3,$4,$5)", [req.params.siteId, req.session.userId, req.params.id, JSON.stringify(current), JSON.stringify({ is_active: 0, deleted_at })]);
+        return { id: current.id, is_active: 0, deleted_at };
+      });
+      clearSimulationState(req.params.siteId, req.params.id);
+      return deleted;
+    });
+    publish(req); res.json({ data: { ...data, success: true } });
+  } catch (error) { respondError(error, res, next); }
 });
 router.patch('/:id/rule', requireAuth, checkDeviceMembership, requireSiteManager, async (req, res, next) => {
   try {
@@ -133,6 +160,7 @@ router.patch('/:id/rule', requireAuth, checkDeviceMembership, requireSiteManager
     if (!Number.isInteger(expected_version) || expected_version < 1) bad('Thiếu phiên bản cấu hình hợp lệ');
     const data = await simulationQueue(req.params.siteId, async () => {
       const updated = await transaction(async client => {
+        await operationalDevice(client, req.params.id);
         const current = (await client.query('SELECT * FROM alert_rules WHERE device_id=$1', [req.params.id])).rows[0];
         if (!current) bad('Không tìm thấy cấu hình', 404, 'NOT_FOUND');
         if (current.version !== expected_version) bad('Cấu hình đã thay đổi. Vui lòng tải lại.', 409, 'CONFLICT');
@@ -157,7 +185,7 @@ router.post('/:id/override', requireAuth, checkDeviceMembership, requireSiteMana
     if (!Number.isInteger(expected_version) || expected_version < 1) bad('Thiếu phiên bản cấu hình hợp lệ');
     const data = await simulationQueue(req.params.siteId, async () => {
       const updated = await transaction(async client => {
-        const device = (await client.query('SELECT is_active,demo_override_level FROM devices WHERE id=$1', [req.params.id])).rows[0];
+        const device = await operationalDevice(client, req.params.id);
         if (!device?.is_active) bad('Điểm đo đã bị vô hiệu hóa', 409, 'DEVICE_DISABLED');
         const current = (await client.query('SELECT * FROM alert_rules WHERE device_id=$1', [req.params.id])).rows[0];
         if (!current) bad('Không tìm thấy cấu hình', 404, 'NOT_FOUND');
@@ -183,21 +211,22 @@ router.post('/:id/rotate-key', requireAuth, checkDeviceMembership, requireSiteMa
     const key = `${req.params.id}.${crypto.randomBytes(16).toString('hex')}`;
     const hash = await bcrypt.hash(key, 10);
     await transaction(async client => {
+      await operationalDevice(client, req.params.id);
       await client.query('UPDATE devices SET key_hash=$1 WHERE id=$2', [hash, req.params.id]);
       await client.query("INSERT INTO audit_logs (site_id,actor_user_id,action,entity_type,entity_id,new_values) VALUES ($1,$2,'ROTATE_DEVICE_KEY','devices',$3,$4)", [req.params.siteId, req.session.userId, req.params.id, JSON.stringify({ rotated: true })]);
     });
     res.json({ data: { id: req.params.id, key } });
-  } catch (error) { next(error); }
+  } catch (error) { respondError(error, res, next); }
 });
 router.get('/site/:siteId/history-stats', requireAuth, requireSiteMember, async (req, res, next) => {
   try {
     const hours = req.query.hours === undefined ? 24 : Number(req.query.hours);
     if (![1, 24, 48, 168].includes(hours)) bad('Khoảng thời gian hỗ trợ: 1, 24, 48 hoặc 168 giờ');
     const since = new Date(Date.now() - hours * 3600000).toISOString(), until = new Date().toISOString();
-    const devices = (await db.query(`SELECT ${DEVICE_FIELDS},${RULE_FIELDS} FROM devices d LEFT JOIN alert_rules r ON d.id=r.device_id WHERE d.site_id=$1 ORDER BY d.name`, [req.params.siteId])).rows;
+    const devices = (await db.query(`SELECT ${DEVICE_FIELDS},${RULE_FIELDS} FROM devices d LEFT JOIN alert_rules r ON d.id=r.device_id WHERE d.site_id=$1 AND d.deleted_at IS NULL ORDER BY d.name`, [req.params.siteId])).rows;
     const results = [];
     for (const device of devices) {
-      const readings = (await db.query('SELECT measured_at,received_at,level_cm,quality,history_only FROM readings WHERE device_id=$1 AND julianday(measured_at)>=julianday($2) AND julianday(measured_at)<=julianday($3) ORDER BY julianday(measured_at) DESC LIMIT 2000', [device.id, since, until])).rows.reverse();
+      const readings = (await db.query('SELECT measured_at,received_at,level_cm,quality,history_only,warning_cm_snapshot,critical_cm_snapshot,rule_version_snapshot FROM readings WHERE device_id=$1 AND julianday(measured_at)>=julianday($2) AND julianday(measured_at)<=julianday($3) ORDER BY julianday(measured_at) DESC LIMIT 2000', [device.id, since, until])).rows.reverse().map(reading => decorateReading(reading, device));
       const stats = (await db.query("SELECT MAX(CASE WHEN quality='ok' THEN level_cm END) peak_level,AVG(CASE WHEN quality='ok' THEN level_cm END) avg_level,COUNT(*) reading_count,COUNT(CASE WHEN quality='ok' THEN level_cm END) quality_count FROM readings WHERE device_id=$1 AND julianday(measured_at)>=julianday($2) AND julianday(measured_at)<=julianday($3)", [device.id, since, until])).rows[0];
       const count = (await db.query('SELECT COUNT(*) count FROM alerts WHERE device_id=$1 AND julianday(opened_at)>=julianday($2) AND julianday(opened_at)<=julianday($3)', [device.id, since, until])).rows[0].count;
       results.push({ ...device, current_level: device.latest_quality === 'ok' ? device.latest_level_cm : null, peak_level: stats.peak_level, avg_level: stats.avg_level === null ? null : Math.round(stats.avg_level * 10) / 10, quality_count: stats.quality_count, reading_count: stats.reading_count, readings_limited: stats.reading_count > readings.length, alert_count: count, readings, hours, since, until });
@@ -205,13 +234,14 @@ router.get('/site/:siteId/history-stats', requireAuth, requireSiteMember, async 
     res.json({ data: results });
   } catch (error) { respondError(error, res, next); }
 });
-router.get('/:id/readings', requireAuth, checkDeviceMembership, requireSiteMember, async (req, res, next) => {
+router.get('/:id/readings', requireAuth, checkHistoricalDeviceMembership, requireSiteMember, async (req, res, next) => {
   try {
     const limit = req.query.limit === undefined ? 100 : Number(req.query.limit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 2000) bad('Giới hạn bản ghi phải từ 1 đến 2000');
     const since = req.query.since ? new Date(req.query.since) : new Date(0), until = req.query.until ? new Date(req.query.until) : new Date();
     if (!Number.isFinite(since.getTime()) || !Number.isFinite(until.getTime()) || since > until) bad('Khoảng thời gian không hợp lệ');
-    const readings = (await db.query('SELECT id,measured_at,received_at,level_cm,quality,history_only FROM readings WHERE device_id=$1 AND julianday(measured_at)>=julianday($2) AND julianday(measured_at)<=julianday($3) ORDER BY julianday(measured_at) DESC LIMIT $4', [req.params.id, since.toISOString(), until.toISOString(), limit])).rows;
+    const rule = (await db.query('SELECT warning_cm,critical_cm,version FROM alert_rules WHERE device_id=$1', [req.params.id])).rows[0];
+    const readings = (await db.query('SELECT id,measured_at,received_at,level_cm,quality,history_only,warning_cm_snapshot,critical_cm_snapshot,rule_version_snapshot FROM readings WHERE device_id=$1 AND julianday(measured_at)>=julianday($2) AND julianday(measured_at)<=julianday($3) ORDER BY julianday(measured_at) DESC LIMIT $4', [req.params.id, since.toISOString(), until.toISOString(), limit])).rows.map(reading => decorateReading(reading, rule));
     res.json({ data: readings });
   } catch (error) { respondError(error, res, next); }
 });
@@ -221,10 +251,11 @@ router.post('/site/:siteId/demo-sample', requireAuth, requireSiteManager, async 
     if (!['normal', 'warning', 'critical', 'sensor-error', 'stale', 'custom'].includes(scenario)) bad('Kịch bản mô phỏng không hợp lệ');
     if (scenario === 'custom' && (typeof req.body.level_cm !== 'number' || !Number.isFinite(req.body.level_cm) || req.body.level_cm < 0 || req.body.level_cm > 90)) bad('Mực nước mô phỏng phải trong khoảng 0–90 cm');
     if (req.body.device_id) {
-      const device = (await db.query('SELECT site_id FROM devices WHERE id=$1', [req.body.device_id])).rows[0];
-      if (!device || device.site_id !== req.params.siteId) bad('Điểm đo không thuộc cơ sở', 403, 'FORBIDDEN');
+      const device = (await db.query('SELECT site_id FROM devices WHERE id=$1 AND deleted_at IS NULL', [req.body.device_id])).rows[0];
+      if (!device) bad('Không tìm thấy điểm đo', 404, 'NOT_FOUND');
+      if (device.site_id !== req.params.siteId) bad('Điểm đo không thuộc cơ sở', 403, 'FORBIDDEN');
     }
-    const devices = (await db.query('SELECT d.id,d.latest_measured_at,r.warning_cm,r.critical_cm,r.clear_cm FROM devices d JOIN alert_rules r ON r.device_id=d.id WHERE d.site_id=$1 AND d.is_active=1', [req.params.siteId])).rows.filter(d => !req.body.device_id || d.id === req.body.device_id);
+    const devices = (await db.query('SELECT d.id,d.latest_measured_at,r.warning_cm,r.critical_cm,r.clear_cm FROM devices d JOIN alert_rules r ON r.device_id=d.id WHERE d.site_id=$1 AND d.is_active=1 AND d.deleted_at IS NULL', [req.params.siteId])).rows.filter(d => !req.body.device_id || d.id === req.body.device_id);
     if (!devices.length) bad('Không có điểm đo đang hoạt động', 404, 'NOT_FOUND');
     const results = [];
     for (const device of devices) {
@@ -248,7 +279,7 @@ router.post('/site/:siteId/demo-rain-step', requireAuth, requireSiteManager, asy
     }
     const site = req.params.siteId;
     const data = await simulationQueue(site, async () => {
-      const devices = (await db.query(`SELECT ${DEVICE_FIELDS},${RULE_FIELDS} FROM devices d JOIN alert_rules r ON r.device_id=d.id WHERE d.site_id=$1 AND d.is_active=1`, [site])).rows;
+      const devices = (await db.query(`SELECT ${DEVICE_FIELDS},${RULE_FIELDS} FROM devices d JOIN alert_rules r ON r.device_id=d.id WHERE d.site_id=$1 AND d.is_active=1 AND d.deleted_at IS NULL`, [site])).rows;
       const peaks = rainPeaks.get(site) || new Map();
       const levels = rainLevels.get(site) || new Map();
       const readings = [];

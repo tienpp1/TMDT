@@ -21,6 +21,7 @@ App kiểm tra Origin đối với thao tác thay đổi trạng thái; dùng JS
 | POST `/api/alerts/:id/ack` | Thành viên | Xác nhận tiếp nhận, không resolve |
 | GET/POST `/api/devices/site/:siteId` | GET thành viên; POST manager | Danh sách / tạo thiết bị |
 | PUT/DELETE `/api/devices/:id` | Manager | Sửa/ngừng quản lý thiết bị |
+| POST `/api/devices/:id/archive` | Manager đúng cơ sở | Xóa bãi khỏi vận hành, giữ lịch sử, ghi audit |
 | PATCH `/api/devices/:id/rule` | Manager | Đổi luật có version |
 | POST `/api/devices/:id/rotate-key` | Manager | Đổi khóa; trả khóa mới một lần, khóa cũ hết hiệu lực |
 | POST `/api/devices/site/:siteId/demo-sample` | Manager | Một mẫu giả lập qua cùng ingestReading; theo sample_count của từng điểm |
@@ -70,6 +71,20 @@ Timestamp hơn 60 giây tương lai bị từ chối; timestamp hơn 5 giây tư
 Luật cần `clear_cm < warning_cm < critical_cm`, sample_count nguyên dương trong giới hạn. Version cũ trả 409; cập nhật tăng version, reset đếm và ghi audit. Ack lặp lại idempotent, không ghi đè người/thời điểm ban đầu. Ack không đặt resolved_at. Chế độ mô phỏng đóng đợt ngay khi có mẫu hợp lệ dưới ngưỡng đỏ; chế độ telemetry cần đủ số mẫu phục hồi theo cấu hình.
 
 DELETE thiết bị là vô hiệu hóa (`is_active=0`), giữ lịch sử/cảnh báo/audit; PUT có thể cập nhật metadata hoặc kích hoạt lại, không dùng để bỏ kiểm tra version của luật. Readings hỗ trợ `since`, `until`, `limit` (1–2000). History-stats nhận `hours` trong 1/24/48/168 và giới hạn chuỗi hiển thị, thông báo khi bị giới hạn; CSV phải đối chiếu cùng khoảng thời gian.
+
+`POST /api/devices/:id/archive` đặt `deleted_at`, `is_active=0`, đóng cảnh báo đang mở và xóa trạng thái mô phỏng tạm, trong transaction xếp tuần tự với mưa. Lặp lại trả cùng kết quả, không ghi audit trùng. Bãi đã xóa không xuất hiện trong danh sách vận hành/overview/history-stats và không thể bật lại, đổi khóa/luật hoặc nhận số đo. Readings và CSV theo ID vẫn có thể tra cứu bởi thành viên đúng cơ sở; các bản ghi lịch sử/cảnh báo/hồ sơ được giữ nguyên. Thao tác giao diện cần xác nhận riêng, khác với vô hiệu hóa có thể bật lại.
+
+## Báo cáo mực nước và CSV
+
+`GET /api/reports/site/:siteId/device/:id/csv?from=<ISO>&to=<ISO>` xuất toàn bộ số đo trong khoảng theo thời điểm đo, tăng dần, không cắt ngầm 1.000 dòng. Không có `from` lấy từ đầu; không có `to` chốt tại lúc tải. Thời điểm nhận cũng phải không vượt mốc xuất. Cùng transaction đọc tên bãi/luật/số đo để tránh cấu hình thay đổi giữa báo cáo. Các header `X-Exported-At`, `X-Reading-Count`, `X-Report-Timezone` cho biết mốc chốt, số dòng dữ liệu và UTC+07:00. Lỗi khoảng thời gian trả 400, không có quyền cơ sở 403, ID không thuộc cơ sở 404.
+
+- Các cột đầu: thời gian đo UTC+7, tên bãi, mực nước, trạng thái, ngưỡng vàng/đỏ; tiếp theo là chất lượng, vị trí, thời gian nhận, cờ chỉ lịch sử, nguồn/phiên bản ngưỡng, UTC gốc và ghi chú.
+- `level_cm >= critical_cm`: **Nguy hiểm**; `>= warning_cm`: **Cảnh báo**; thấp hơn: **OK**. Tính riêng từng mẫu khi dâng lẫn rút, không lấy trạng thái ACK/hysteresis hoặc màu vùng nguy cơ. Lỗi/thiếu số đo: **Không xác định**, không giả thành 0/OK.
+- Ingestion lưu `warning_cm_snapshot`, `critical_cm_snapshot`, `rule_version_snapshot` cùng reading trong transaction. Ngưỡng này có hiệu lực tại lúc nhận; bản tin gửi lại giữ snapshot gốc. Mẫu đến trễ ghi rõ không khẳng định ngưỡng tại thời điểm đo cũ.
+- Bản ghi trước khi bổ sung snapshot có các trường null: đối chiếu luật hiện tại và ghi rõ **Ngưỡng hiện tại (chưa có ngưỡng lịch sử)**. Migration không tự điền ngưỡng lịch sử không có bằng chứng.
+- UTF-8 BOM, CRLF, escape dấu nháy và vô hiệu hóa tiền tố công thức trong ô văn bản để mở bằng Excel/WPS. CSV là ảnh chụp dữ liệu lúc tải, không tự cập nhật sau tải.
+
+Readings/history-stats bổ sung `water_status`, `water_status_label`, `warning_cm`, `critical_cm`, `threshold_source`, `threshold_source_label`, `rule_version`, `quality_label`, `report_note`. `threshold_source` là `snapshot` hoặc `current_rule`; các trường số đo gốc không bị thay. Trang Báo cáo làm mới theo polling của ứng dụng, có chặn phản hồi cũ ghi đè dữ liệu mới.
 
 Hồ sơ sự cố có báo cáo, phân công, ghi chú và hoàn tất. Ghi chú ban đầu (`report`) hoặc phân công (`assignment`) không thay ghi chú kết quả (`outcome`). Chỉ người phụ trách hoặc manager được hoàn tất hồ sơ đã tiếp nhận; phải có ghi chú kết quả và không còn cảnh báo đang mở trong đợt. Hoàn tất hồ sơ không thay điều kiện mực nước của cảnh báo.
 

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS devices (
     point_label TEXT,
     is_active INTEGER DEFAULT 1,
     key_hash TEXT NOT NULL,
+    deleted_at TEXT,
     last_seen TEXT,
     last_fresh_received_at TEXT,
     latest_measured_at TEXT,
@@ -57,6 +58,9 @@ CREATE TABLE IF NOT EXISTS readings (
     level_cm NUMERIC,
     quality TEXT NOT NULL,
     history_only INTEGER DEFAULT 0,
+    warning_cm_snapshot NUMERIC,
+    critical_cm_snapshot NUMERIC,
+    rule_version_snapshot INTEGER,
     UNIQUE (device_id, message_id)
 );
 
